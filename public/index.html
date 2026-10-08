@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VAULT — Private file storage</title>
+<meta name="description" content="A private, secure place to store, browse, and share your files.">
+<meta name="theme-color" content="#06060a">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="VAULT">
+<meta property="og:title" content="VAULT — Private file storage">
+<meta property="og:description" content="A private, secure place to store, browse, and share your files.">
+<meta property="og:url" content="https://vault.kalculator.lol/">
+<meta property="og:image" content="https://vault.kalculator.lol/favicon.svg">
+<meta property="og:image:secure_url" content="https://vault.kalculator.lol/favicon.svg">
+<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:alt" content="VAULT">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="VAULT — Private file storage">
+<meta name="twitter:description" content="A private, secure place to store, browse, and share your files.">
+<meta name="twitter:image" content="https://vault.kalculator.lol/favicon.svg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<div id="login" class="hidden">
+  <form class="login-card" id="lf">
+    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">VAULT</span></div>
+    <div class="term"><div>&gt; vault v1.0 // private storage</div><div>&gt; awaiting credentials<span class="caret"></span></div></div>
+    <input class="field" id="u" placeholder="username" autocomplete="username" required autofocus>
+    <input class="field" id="p" type="password" placeholder="password" autocomplete="current-password" required>
+    <button class="btn primary unlock">Unlock</button>
+    <div id="lerr"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">VAULT</span><small>b1.0</small></div>
+    <div class="hchips"><span class="chip" id="whoami">user</span><span class="chip" id="clock">--:--:--</span></div>
+    <div class="hr">
+      <button class="btn" id="theme" data-i="palette"><span id="themename">Mono</span></button>
+      <button class="btn icon" id="lo" title="Log out" data-i="logout"></button>
+    </div>
+  </header>
+  <div id="al"></div>
+  <main>
+    <section class="panel" id="p-net">
+      <div class="ph"><span class="pt">NETWORK</span><span class="pm" id="netstate"><i class="led"></i><span id="nettext">IDLE</span></span><i class="chev"></i></div>
+      <div class="pb"><div class="pi"><div class="pbody">
+        <div class="gc transfer-chart">
+          <div class="chart-hud">
+            <div class="chart-hud-title"><span>TRANSFER RATE</span><span class="chart-legend"><i class="down-key"></i>DOWN <i class="up-key"></i>UP</span></div>
+            <div class="chart-hud-metrics">
+              <div class="chart-metric down">
+                <div class="lab"><i></i>DOWNLOAD</div>
+                <div class="big" title="Click to switch units"><span class="num" id="dnum">0</span><span class="unit" id="dunit">B/s</span></div>
+                <div class="sub"><span title="Peak rate">P <b id="dpeak">0</b></span><span title="Total downloaded">T <b id="dtot">0 B</b></span><span title="Active downloads">A <b id="dact">0</b></span></div>
+              </div>
+              <div class="chart-metric upload-metric">
+                <div class="lab"><i></i>UPLOAD</div>
+                <div class="big" title="Click to switch units"><span class="num" id="unum">0</span><span class="unit" id="uunit">B/s</span></div>
+                <div class="sub"><span title="Peak rate">P <b id="upeak">0</b></span><span title="Total uploaded">T <b id="utot">0 B</b></span><span title="Active uploads">A <b id="uact">0</b></span></div>
+              </div>
+            </div>
+          </div>
+          <canvas id="gnet"></canvas>
+        </div>
+        <div class="disk"><span class="muted">STORAGE USED</span><div class="seg-bar"><i id="sfill"></i></div><b id="sdisk-pct">--%</b><span id="stext" class="muted"></span></div>
+        <div class="disk-activity" title="Disk busy percentage is supported on Windows and Linux; read/write throughput is shown where available.">
+          <span class="muted">DISK ACTIVITY</span>
+          <div class="seg-bar"><i id="disk-activity-fill"></i></div>
+          <b id="disk-activity-pct">--%</b>
+          <span id="disk-activity-rate" class="muted">READ -- · WRITE --</span>
+        </div>
+        <div class="foot"><span>PING <b id="pingv">-</b></span><span>FPS <b id="fpsv">-</b></span><span>UPTIME <b id="uptv">-</b></span><span>click a speed to switch MB/s / Mbps &middot; measured on the server</span></div>
+      </div></div></div>
+    </section>
+
+    <section class="panel" id="p-up">
+      <div class="ph"><span class="pt">UPLOAD</span><span class="pm">drag &amp; drop files or folders anywhere</span><i class="chev"></i></div>
+      <div class="pb"><div class="pi"><div class="pbody">
+        <div class="drop" id="drop">
+          <div class="ring" data-i="upload" data-s="26"></div>
+          <div class="dt">DROP FILES OR FOLDERS HERE</div>
+          <div class="muted upload-hint">uploads go into the folder you're viewing</div>
+          <div class="drow">
+            <button class="btn primary" type="button" data-i="upload">Browse files</button>
+            <button class="btn" id="updir" type="button" data-i="folderup">Upload folder</button>
+          </div>
+        </div>
+      </div></div></div>
+    </section>
+
+    <section class="panel" id="p-files">
+      <div class="ph"><span class="pt">FILES</span><button class="btn explorer-toggle" id="explorer-toggle" type="button">Expand</button><span class="pm" id="count"></span><i class="chev"></i></div>
+      <div class="pb"><div class="pi"><div class="pbody">
+        <div id="archive-view-bar" class="archive-view-bar hidden">
+          <span id="archive-view-label"></span>
+          <button class="btn" id="archive-view-close" type="button">Close temporary view</button>
+        </div>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="toolbar">
+          <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="search this folder   ( / )"></div>
+          <span class="selection-hint" title="Ctrl+A selects visible items · Delete removes selection · Escape clears selection">Ctrl/Shift-click · Ctrl+A all · Del delete · Esc clear · Drag to move</span>
+          <select id="sort"><option value="date">Newest</option><option value="name">Name</option><option value="size">Largest</option></select>
+          <button class="btn" id="newf" data-i="folderplus">New folder</button>
+          <div id="selection-actions" class="hidden">
+            <span id="selected-count"></span>
+            <button class="btn" id="zip-selected" type="button" data-i="zip">Create ZIP</button>
+            <button class="btn danger" id="delete-selected" type="button" data-i="trash">Delete selected</button>
+            <button class="btn" id="clear-selection" type="button">Clear</button>
+          </div>
+          <div class="seg"><button id="vg" class="on" data-i="grid" title="Grid"></button><button id="vl" data-i="list" title="List"></button></div>
+        </div>
+        <div id="files" class="files"></div>
+        <div id="empty" class="empty hidden"></div>
+      </div></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="overlay" class="hidden">DROP TO UPLOAD</div>
+
+<div id="modal" class="hidden">
+  <div class="mbar">
+    <div id="mname"></div>
+    <div class="mact">
+      <button class="btn icon" id="mprev" data-i="left"></button>
+      <button class="btn icon" id="mnext" data-i="right"></button>
+      <button class="btn" id="mtext" type="button">Text</button>
+      <button class="btn" id="mbytes" type="button">Bytes</button>
+      <button class="btn" id="mrename" type="button">Rename</button>
+      <a class="btn" id="mdl" data-i="download">Download</a>
+      <button class="btn danger icon" id="mdel" data-i="trash"></button>
+      <button class="btn icon" id="mx" data-i="x"></button>
+    </div>
+  </div>
+  <div id="mbody"></div>
+</div>
+
+<div id="dlg" class="hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+  <form>
+    <div class="t" id="dlg-title">NEW FOLDER</div>
+    <div class="dlg-message hidden" id="dlg-message"></div>
+    <input class="field" id="dname" placeholder="folder name" autocomplete="off">
+    <div class="row"><button type="button" class="btn" id="dcancel">Cancel</button><button class="btn primary" id="dlg-confirm">Create</button></div>
+  </form>
+</div>
+
+<div id="share-dialog" class="hidden">
+  <form id="share-form">
+    <div class="t">SHARE FILE</div>
+    <div id="share-filename" class="muted"></div>
+    <p class="share-note">Anyone with the link can download this file. Each download request uses one count. Leave the use limit empty for a permanent link that stays active until you revoke it.</p>
+    <div id="share-list" class="share-list"></div>
+    <div class="share-create">
+      <label>Maximum uses (blank = unlimited)
+        <input class="field" id="share-uses" type="number" min="1" step="1" placeholder="Unlimited">
+      </label>
+      <button class="btn primary" id="share-create" type="submit">Create link</button>
+    </div>
+    <div id="share-result" class="hidden">
+      <input class="field" id="share-url" readonly aria-label="Share link">
+      <div class="row">
+        <button class="btn" id="share-copy" type="button">Copy link</button>
+        <button class="btn danger" id="share-revoke-current" type="button">Revoke</button>
+      </div>
+    </div>
+    <div class="row end"><button class="btn" id="share-close" type="button">Close</button></div>
+  </form>
+</div>
+
+<div id="tray"></div>
+<div id="toasts"></div>
+<input type="file" id="pick" multiple hidden>
+<input type="file" id="pickdir" webkitdirectory multiple hidden>
+
+<script src="/app.js?v=cross-platform-metrics-1" defer></script>
+</body>
+</html>
