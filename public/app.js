@@ -444,7 +444,14 @@ function updateSelectionActions() {
   const count = selected.size;
   $('#selection-actions').classList.toggle('hidden', count === 0);
   $('#selected-count').textContent = count + ' selected';
-  $('#files').querySelectorAll('.card').forEach((el) => el.classList.toggle('selected', selected.has(el.dataset.name)));
+  $('#files').querySelectorAll('.card').forEach((el) => {
+    const isSelected = selected.has(el.dataset.name);
+    el.classList.toggle('selected', isSelected);
+    const mark = el.querySelector('.selection-mark');
+    mark.classList.toggle('checked', isSelected);
+    mark.setAttribute('aria-pressed', String(isSelected));
+    mark.setAttribute('aria-label', (isSelected ? 'Deselect ' : 'Select ') + el.dataset.name);
+  });
 }
 
 function selectCard(f, e) {
@@ -495,12 +502,37 @@ function card(f, i, anim) {
   }
   el.onclick = (e) => {
     if (Date.now() < suppressCardClickUntil) { e.preventDefault(); return; }
-    if (selectCard(f, e)) { el.classList.toggle('selected', selected.has(f.name)); return; }
+    if (e.detail > 1) return;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      selectCard(f, e);
+      return;
+    }
+    selected.clear();
+    selected.add(f.name);
+    selectionAnchor = f.name;
+    updateSelectionActions();
+  };
+  el.ondblclick = (e) => {
+    if (Date.now() < suppressCardClickUntil || e.target.closest('.selection-mark,button,a')) return;
     if (isDir) go(rel);
     else if (isArchiveFile(f.name)) openArchiveView(f);
     else openPreview(pl.indexOf(f));
   };
-  const mark = document.createElement('span'); mark.className = 'selection-mark'; mark.setAttribute('aria-hidden', 'true');
+  const mark = document.createElement('button');
+  mark.type = 'button';
+  mark.className = 'selection-mark';
+  mark.setAttribute('aria-pressed', String(selected.has(f.name)));
+  mark.setAttribute('aria-label', (selected.has(f.name) ? 'Deselect ' : 'Select ') + f.name);
+  mark.onclick = (e) => {
+    e.stopPropagation();
+    if (e.shiftKey && selectionAnchor) selectCard(f, e);
+    else {
+      if (selected.has(f.name)) selected.delete(f.name);
+      else selected.add(f.name);
+      selectionAnchor = f.name;
+      updateSelectionActions();
+    }
+  };
   const th = document.createElement('div'); th.className = 'thumb'; th.style.setProperty('--c', COL[k]);
   if (k === 'image') { const im = new Image(); im.loading = 'lazy'; im.alt = ''; im.src = urlFor('view', rel); th.append(im); }
   else {
@@ -692,6 +724,12 @@ $('#clear-selection').onclick = () => {
   selected.clear(); selectionAnchor = null;
   render(false);
 };
+$('#select-all').onclick = () => {
+  selected.clear();
+  for (const item of list) selected.add(item.name);
+  selectionAnchor = list[0] ? list[0].name : null;
+  updateSelectionActions();
+};
 async function createZip(names) {
   try {
     const result = await api('/api/archive', {
@@ -707,6 +745,37 @@ async function createZip(names) {
     toast(e.message, 'err');
   }
 }
+$('#download-selected').onclick = async () => {
+  const targets = items.filter((item) => selected.has(item.name));
+  if (!targets.length) return;
+  const button = $('#download-selected');
+  button.disabled = true;
+  try {
+    const result = await api('/api/download-items', {
+      method: 'POST',
+      headers: JSONH,
+      body: JSON.stringify({ path: cwd, items: targets.map((item) => item.name) })
+    });
+    for (let i = 0; i < result.files.length; i++) {
+      const link = document.createElement('a');
+      link.hidden = true;
+      link.href = urlFor('download', result.files[i]);
+      document.body.append(link);
+      link.click();
+      link.remove();
+      if (i + 1 < result.files.length)
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    selected.clear();
+    selectionAnchor = null;
+    updateSelectionActions();
+    toast('Started ' + result.files.length + ' individual downloads. If only one starts, allow multiple automatic downloads for this site in your browser.');
+  } catch (e) {
+    toast(e.message || 'Could not prepare selected items for download', 'err');
+  } finally {
+    button.disabled = false;
+  }
+};
 async function moveItems(payload, destination) {
   if (!payload || typeof payload.from !== 'string' || !Array.isArray(payload.items) || !payload.items.length) return;
   try {

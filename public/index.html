@@ -107,11 +107,13 @@
         <div class="crumbs" id="crumbs"></div>
         <div class="toolbar">
           <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="search this folder   ( / )"></div>
-          <span class="selection-hint" title="Ctrl+A selects visible items · Delete removes selection · Escape clears selection">Ctrl/Shift-click · Ctrl+A all · Del delete · Esc clear · Drag to move</span>
+          <span class="selection-hint" title="Click a card to select; double-click to open. Use its checkmark to add or remove items from a multi-selection.">Click to select · double-click to open · tap checkmarks to select multiple</span>
           <select id="sort"><option value="date">Newest</option><option value="name">Name</option><option value="size">Largest</option></select>
           <button class="btn" id="newf" data-i="folderplus">New folder</button>
           <div id="selection-actions" class="hidden">
             <span id="selected-count"></span>
+            <button class="btn" id="select-all" type="button">Select all</button>
+            <button class="btn" id="download-selected" type="button" data-i="download">Download selected</button>
             <button class="btn" id="zip-selected" type="button" data-i="zip">Create ZIP</button>
             <button class="btn danger" id="delete-selected" type="button" data-i="trash">Delete selected</button>
             <button class="btn" id="clear-selection" type="button">Clear</button>
@@ -181,6 +183,6 @@
 <input type="file" id="pick" multiple hidden>
 <input type="file" id="pickdir" webkitdirectory multiple hidden>
 
-<script src="/app.js?v=cross-platform-metrics-1" defer></script>
+<script src="/app.js?v=click-select-double-open-1" defer></script>
 </body>
 </html>

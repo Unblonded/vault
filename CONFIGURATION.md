@@ -49,4 +49,6 @@ Extraction is staged and checked before the contents are placed in a new folder.
 
 Clicking an archive in the file browser opens a temporary workspace where its contents can be browsed and operated on. The original archive is unchanged; temporary edits are discarded when the workspace is closed or after two hours without activity. Move files out of the workspace to keep them.
 
+Choose **Download selected** to download selected files individually in their original formats. When folders are selected, their files are included as separate downloads and folder structure is not preserved. Allow multiple automatic downloads for Vault if your browser prompts; if only one file starts, enable that permission in the browser's site settings. A bulk request is limited to 5,000 files.
+
 Disk busy percentage is reported on Windows and Linux. macOS reports read/write throughput when available but does not expose the same busy-time counter through this implementation.

@@ -40,6 +40,7 @@ const SHARE_FILE = path.join(DATA, 'shares.json');
 fs.mkdirSync(DATA, { recursive: true });
 const archiveViews = new Map();
 const ARCHIVE_VIEW_IDLE_MS = 2 * 60 * 60 * 1000;
+const MAX_BULK_DOWNLOAD_FILES = 5000;
 
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(48).toString('hex'), { mode: 0o600 });
 const SECRET = fs.readFileSync(SECRET_FILE, 'utf8');
@@ -103,7 +104,7 @@ function saveShares() {
 
 const app = express();
 app.set('trust proxy', 1); // one reverse proxy/tunnel in front; remove if you connect directly
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -658,7 +659,7 @@ app.post('/api/move', requireAuth, async (req, res) => {
   res.json({ moved: plans.map((plan) => plan.nextRel), count: plans.length });
 });
 
-async function collectDirectoryEntries(directory, archivePath, collected) {
+async function collectDirectoryEntries(directory, archivePath, collected, maxFiles = Infinity, fileCounter = { count: 0 }) {
   const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   if (!entries.length) {
     collected.push({ path: archivePath.replace(/\\/g, '/') + '/', directory: true });
@@ -670,49 +671,71 @@ async function collectDirectoryEntries(directory, archivePath, collected) {
     const stat = await fs.promises.lstat(full);
     if (stat.isSymbolicLink()) continue;
     const nextArchivePath = archivePath + '/' + entry.name;
-    if (stat.isDirectory()) await collectDirectoryEntries(full, nextArchivePath, collected);
-    else if (stat.isFile()) collected.push({ source: full, path: nextArchivePath.replace(/\\/g, '/') });
+    if (stat.isDirectory()) await collectDirectoryEntries(full, nextArchivePath, collected, maxFiles, fileCounter);
+    else if (stat.isFile()) {
+      collected.push({ source: full, path: nextArchivePath.replace(/\\/g, '/') });
+      fileCounter.count++;
+      if (fileCounter.count > maxFiles)
+        throw httpErr(413, 'Bulk download is limited to ' + maxFiles + ' files at a time');
+    }
   }
 }
 
-app.post('/api/archive', requireAuth, async (req, res) => {
-  const payload = req.body;
-  if (!payload || typeof payload.path !== 'string' || !Array.isArray(payload.items) ||
-      payload.items.length < 1 || payload.items.length > 500)
-    throw httpErr(400, 'Select between 1 and 500 items to compress');
+async function collectSelectedArchiveEntries(username, basePath, items, maxFiles = Infinity) {
+  if (typeof basePath !== 'string' || !Array.isArray(items) || items.length < 1 || items.length > 500)
+    throw httpErr(400, 'Select between 1 and 500 items');
 
-  const base = resolveRel(req.user.username, payload.path);
+  const base = resolveRel(username, basePath);
   const baseStat = await fs.promises.stat(base.full).catch((err) => {
     if (err.code === 'ENOENT') throw httpErr(404, 'Folder not found');
     throw err;
   });
   if (!baseStat.isDirectory()) throw httpErr(404, 'Folder not found');
   const collected = [];
+  const fileCounter = { count: 0 };
   const names = new Set();
   let archiveBase = 'Archive';
-  for (const item of payload.items) {
+  for (const item of items) {
     if (typeof item !== 'string' || !item || /[\\/]/.test(item) || item === '.' || item === '..')
       throw httpErr(400, 'Invalid item name');
     if (names.has(item)) throw httpErr(400, 'Duplicate item name');
     names.add(item);
     const rel = path.posix.join(base.rel, item);
-    const { full } = resolveRel(req.user.username, rel);
+    const { full } = resolveRel(username, rel);
     const stat = await fs.promises.lstat(full).catch((err) => {
       if (err.code === 'ENOENT') throw httpErr(404, 'Item not found: ' + item);
       throw err;
     });
-    if (stat.isSymbolicLink()) throw httpErr(400, 'Symbolic links cannot be compressed');
-    if (payload.items.length === 1)
+    if (stat.isSymbolicLink()) throw httpErr(400, 'Symbolic links are not supported for this operation');
+    if (items.length === 1)
       archiveBase = stat.isDirectory() ? item : path.parse(item).name;
-    if (stat.isDirectory()) await collectDirectoryEntries(full, item, collected);
-    else if (stat.isFile()) collected.push({ source: full, path: item });
+    if (stat.isDirectory()) await collectDirectoryEntries(full, item, collected, maxFiles, fileCounter);
+    else if (stat.isFile()) {
+      collected.push({ source: full, path: item });
+      fileCounter.count++;
+    }
     else throw httpErr(400, 'Unsupported item type: ' + item);
+    if (fileCounter.count > maxFiles)
+      throw httpErr(413, 'Bulk download is limited to ' + maxFiles + ' files at a time');
   }
+  return { base, archiveBase, collected };
+}
 
-  const archiveName = cleanName(archiveBase) + '.zip';
-  const tempDir = path.join(userDir(req.user.username), '.vault-tmp');
-  await fs.promises.mkdir(tempDir, { recursive: true });
-  const tempPath = path.join(tempDir, 'archive-' + crypto.randomBytes(16).toString('hex') + '.zip');
+app.post('/api/download-items', requireAuth, async (req, res) => {
+  const payload = req.body;
+  if (!payload) throw httpErr(400, 'Invalid download request');
+  const { base, collected } = await collectSelectedArchiveEntries(
+    req.user.username, payload.path, payload.items, MAX_BULK_DOWNLOAD_FILES
+  );
+  const files = collected
+    .filter((entry) => !entry.directory)
+    .map((entry) => path.posix.join(base.rel, entry.path));
+  if (!files.length) throw httpErr(400, 'The selected folders contain no downloadable files');
+  res.set('Cache-Control', 'no-store');
+  res.json({ files });
+});
+
+async function writeSelectedZip(collected, tempPath) {
   const archive = new ZipArchive({ zlib: { level: 6 } });
   const output = fs.createWriteStream(tempPath, { flags: 'wx' });
   const failArchiveOutput = (err) => output.destroy(err);
@@ -727,6 +750,22 @@ app.post('/api/archive', requireAuth, async (req, res) => {
     }
     archive.finalize();
     await completed;
+  } catch (err) {
+    archive.abort();
+    throw err;
+  }
+}
+
+app.post('/api/archive', requireAuth, async (req, res) => {
+  const payload = req.body;
+  if (!payload) throw httpErr(400, 'Invalid archive request');
+  const { base, archiveBase, collected } = await collectSelectedArchiveEntries(req.user.username, payload.path, payload.items);
+  const archiveName = cleanName(archiveBase) + '.zip';
+  const tempDir = path.join(userDir(req.user.username), '.vault-tmp');
+  await fs.promises.mkdir(tempDir, { recursive: true });
+  const tempPath = path.join(tempDir, 'archive-' + crypto.randomBytes(16).toString('hex') + '.zip');
+  try {
+    await writeSelectedZip(collected, tempPath);
 
     let destination, name;
     for (let suffix = 1; ; suffix++) {
@@ -743,9 +782,6 @@ app.post('/api/archive', requireAuth, async (req, res) => {
       }
     }
     res.json({ created: path.posix.join(base.rel, name), name });
-  } catch (err) {
-    archive.abort();
-    throw err;
   } finally {
     await fs.promises.unlink(tempPath).catch((err) => {
       if (err.code !== 'ENOENT') console.error('Could not remove temporary ZIP archive:', err);
