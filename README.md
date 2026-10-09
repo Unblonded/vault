@@ -2,7 +2,7 @@
 
 Vault is a self-hosted file browser and storage server. It supports Windows, macOS, and Linux and provides authenticated, per-user file storage, uploads, previews, sharing, archive operations, and transfer and disk metrics.
 
-Click or tap a file or folder once to select it; double-click or double-tap to open it. Use the checkmarks on cards to add or remove items from a multi-selection (always visible on touch devices), or use Ctrl/Cmd-click, Shift-click, and **Select all**. Choose **Download selected** to start a separate, original-file download for each selected item. Files inside selected folders are included and downloaded individually (folder structure is not preserved). If the browser asks, allow multiple automatic downloads for Vault; if only one file starts, enable that permission in the browser's site settings. Very large selections are limited to 5,000 files.
+Click or tap a file or folder once to open it. Use Ctrl/Cmd-click to select items, then Shift-click to select a range; on touch devices, use the always-visible card checkmarks. **Select all** selects the visible items. Choose **Download selected** to start a separate, original-file download for each selected item. Files inside selected folders are included and downloaded individually (folder structure is not preserved). If the browser asks, allow multiple automatic downloads for Vault; if only one file starts, enable that permission in the browser's site settings. Very large selections are limited to 5,000 files.
 
 ## Requirements
 

@@ -502,18 +502,10 @@ function card(f, i, anim) {
   }
   el.onclick = (e) => {
     if (Date.now() < suppressCardClickUntil) { e.preventDefault(); return; }
-    if (e.detail > 1) return;
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       selectCard(f, e);
       return;
     }
-    selected.clear();
-    selected.add(f.name);
-    selectionAnchor = f.name;
-    updateSelectionActions();
-  };
-  el.ondblclick = (e) => {
-    if (Date.now() < suppressCardClickUntil || e.target.closest('.selection-mark,button,a')) return;
     if (isDir) go(rel);
     else if (isArchiveFile(f.name)) openArchiveView(f);
     else openPreview(pl.indexOf(f));
