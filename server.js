@@ -23,7 +23,6 @@ const DEFAULT_FILES = process.platform === 'win32' && fs.existsSync(LEGACY_WINDO
   ? LEGACY_WINDOWS_FILES
   : path.join(__dirname, 'storage');
 const FILES = path.resolve(process.env.STORAGE_DIR || DEFAULT_FILES);
-const MAX_FILE_MB = 10240;                // 10 GB per file
 const SEVEN_ZIP_EXECUTABLES = process.env.SEVEN_ZIP_PATH
   ? [process.env.SEVEN_ZIP_PATH]
   : process.platform === 'win32'
@@ -308,7 +307,6 @@ app.post('/api/mkdir', requireAuth, (req, res) => {
 
 // ---------- upload ----------
 const upload = multer({
-  limits: { fileSize: MAX_FILE_MB * 1024 * 1024 },
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       try {
@@ -341,7 +339,6 @@ const sessions = new Map();
 app.post('/api/upload/start', requireAuth, (req, res) => {
   const { path: base, sub, name, size } = req.body || {};
   if (!Number.isSafeInteger(size) || size < 0) throw httpErr(400, 'Invalid size');
-  if (size > MAX_FILE_MB * 1024 * 1024) throw httpErr(413, 'File too large');
   const dir = targetDir(req.user.username, base, sub);
   fs.mkdirSync(dir, { recursive: true });
   const tmpDir = path.join(userDir(req.user.username), '.vault-tmp');
@@ -1107,7 +1104,7 @@ const SEVEN_ZIP_EXTENSIONS = new Set([
 ]);
 const SEVEN_ZIP_COMPOUND_EXTENSIONS = ['.tar.bz2', '.tar.gz', '.tar.xz'];
 const MAX_ARCHIVE_ENTRIES = 20000;
-const MAX_EXTRACTED_BYTES = MAX_FILE_MB * 1024 * 1024;
+const MAX_EXTRACTED_BYTES = 10 * 1024 * 1024 * 1024;
 
 function archiveExtension(name) {
   const lower = name.toLowerCase();

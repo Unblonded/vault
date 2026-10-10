@@ -2,7 +2,7 @@
 
 Vault is a self-hosted file browser and storage server. It supports Windows, macOS, and Linux and provides authenticated, per-user file storage, uploads, previews, sharing, archive operations, and transfer and disk metrics.
 
-The Upload panel has a **Use chunked uploads for files over 90 MB** option, enabled by default. It sends large files in 8 MiB chunks (up to three at once), which is recommended behind reverse proxies. The choice is saved in the browser. Turn it off to send each file as one request; servers or proxies may reject large single requests.
+Vault does not impose a per-file upload size limit. Actual maximums depend on available storage, the filesystem, and any reverse proxy. The Upload panel has a **Use chunked uploads for files over 90 MB** option, enabled by default. It sends large files in 8 MiB chunks (up to three at once), which is recommended behind reverse proxies. The choice is saved in the browser. Turn it off to send each file as one request; servers or proxies may reject large single requests.
 
 Folder cards show the total size of regular files in that folder and its subfolders. Hidden `.vault-tmp` workspaces and symbolic links are excluded from the calculation.
 
