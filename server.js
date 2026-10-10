@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { pipeline, Transform } = require('stream');
 const { execFile } = require('child_process');
+const { Worker } = require('worker_threads');
 const yauzl = require('yauzl');
 const si = require('systeminformation');
 
@@ -41,6 +42,13 @@ fs.mkdirSync(DATA, { recursive: true });
 const archiveViews = new Map();
 const ARCHIVE_VIEW_IDLE_MS = 2 * 60 * 60 * 1000;
 const MAX_BULK_DOWNLOAD_FILES = 5000;
+const MAX_JAR_DECOMPILE_CLASSES = 2000;
+const MAX_JAR_DECOMPILE_BYTES = 128 * 1024 * 1024;
+const MAX_JAR_DECOMPILED_BYTES = 256 * 1024 * 1024;
+const MAX_FOLDER_SIZE_REQUESTS = 500;
+const MAX_FOLDER_SIZE_SCAN_ENTRIES = 500000;
+const MAX_COPY_ITEMS = 500;
+const MAX_COPY_ENTRIES = 500000;
 
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(48).toString('hex'), { mode: 0o600 });
 const SECRET = fs.readFileSync(SECRET_FILE, 'utf8');
@@ -144,12 +152,12 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const account = accounts.get(username);
   if (!account || !(await bcrypt.compare(String(password || ''), account.passwordHash)))
     return res.status(401).json({ error: 'Invalid credentials' });
-  const token = jwt.sign({ sub: username }, SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ sub: username }, SECRET, { expiresIn: '30d' });
   res.cookie('token', token, {
     httpOnly: true,
     sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 3600 * 1000,
+    maxAge: 30 * 24 * 3600 * 1000,
   });
   res.json({ username, token });
 });
@@ -228,9 +236,65 @@ app.get('/api/files', requireAuth, (req, res) => {
     } catch {}
   }
   const archiveView = resolved.archiveView
-    ? { name: resolved.archiveView.name, sourcePath: resolved.archiveView.sourcePath }
+    ? {
+      name: resolved.archiveView.name,
+      sourcePath: resolved.archiveView.sourcePath,
+      decompiled: Boolean(resolved.archiveView.decompiled),
+    }
     : null;
   res.json({ path: rel, items, archiveView });
+});
+
+app.post('/api/folder-sizes', requireAuth, async (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload.path !== 'string' || !Array.isArray(payload.folders) ||
+      payload.folders.length > MAX_FOLDER_SIZE_REQUESTS)
+    throw httpErr(400, 'Invalid folder size request');
+
+  const base = resolveRel(req.user.username, payload.path);
+  const baseStat = await fs.promises.lstat(base.full).catch((err) => {
+    if (err.code === 'ENOENT') throw httpErr(404, 'Folder not found');
+    throw err;
+  });
+  if (!baseStat.isDirectory() || baseStat.isSymbolicLink()) throw httpErr(404, 'Folder not found');
+
+  let scannedEntries = 0;
+  async function getDirectorySize(directory) {
+    let size = 0;
+    const entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.toLowerCase() === '.vault-tmp') continue;
+      scannedEntries++;
+      if (scannedEntries > MAX_FOLDER_SIZE_SCAN_ENTRIES)
+        throw httpErr(413, 'Folder size scan exceeded the 500,000 entry limit');
+      const full = path.join(directory, entry.name);
+      const stat = await fs.promises.lstat(full);
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) size += await getDirectorySize(full);
+      else if (stat.isFile()) size += stat.size;
+      if (!Number.isSafeInteger(size))
+        throw httpErr(413, 'Folder size exceeds the supported size range');
+    }
+    return size;
+  }
+
+  const sizes = [];
+  const seen = new Set();
+  for (const name of payload.folders) {
+    if (typeof name !== 'string' || !name || /[\\/]/.test(name) || name === '.' || name === '..')
+      throw httpErr(400, 'Invalid folder name');
+    if (seen.has(name)) throw httpErr(400, 'Duplicate folder name');
+    seen.add(name);
+    const folder = resolveRel(req.user.username, path.posix.join(base.rel, name));
+    const stat = await fs.promises.lstat(folder.full).catch((err) => {
+      if (err.code === 'ENOENT') throw httpErr(404, 'Folder not found: ' + name);
+      throw err;
+    });
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw httpErr(400, 'Selected item is not a folder: ' + name);
+    sizes.push({ name, size: await getDirectorySize(folder.full) });
+  }
+  res.set('Cache-Control', 'no-store').json({ sizes });
 });
 
 app.post('/api/mkdir', requireAuth, (req, res) => {
@@ -271,7 +335,7 @@ app.post('/api/files', requireAuth, (req, res) => {
 });
 
 // ---------- chunked upload (big files; stays under Cloudflare's 100 MB request limit) ----------
-const CHUNK = 2 * 1024 * 1024;
+const CHUNK = 8 * 1024 * 1024;
 const sessions = new Map();
 
 app.post('/api/upload/start', requireAuth, (req, res) => {
@@ -659,6 +723,156 @@ app.post('/api/move', requireAuth, async (req, res) => {
   res.json({ moved: plans.map((plan) => plan.nextRel), count: plans.length });
 });
 
+app.post('/api/copy', requireAuth, async (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload.from !== 'string' || typeof payload.to !== 'string' ||
+      !Array.isArray(payload.items) || payload.items.length < 1 || payload.items.length > MAX_COPY_ITEMS)
+    throw httpErr(400, 'Select between 1 and ' + MAX_COPY_ITEMS + ' items to copy');
+
+  const sourceDir = resolveRel(req.user.username, payload.from);
+  const destinationDir = resolveRel(req.user.username, payload.to);
+  if (destinationDir.archiveView) throw httpErr(400, 'Cannot copy into a temporary archive view');
+  async function ensureNoSymlinkPath(root, full) {
+    const relative = path.relative(root, full);
+    if (path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep))
+      throw httpErr(400, 'Copy path is outside the permitted folder');
+    let stat = await fs.promises.lstat(root);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw httpErr(400, 'Copy path is not a permitted folder');
+    let current = root;
+    const segments = relative ? relative.split(path.sep) : [];
+    for (let i = 0; i < segments.length; i++) {
+      current = path.join(current, segments[i]);
+      stat = await fs.promises.lstat(current);
+      if (stat.isSymbolicLink()) throw httpErr(400, 'Symbolic links cannot be used in copy paths');
+      if (i < segments.length - 1 && !stat.isDirectory())
+        throw httpErr(400, 'Copy path is not a folder');
+    }
+  }
+  const sourceRoot = sourceDir.archiveView ? sourceDir.archiveView.root : userDir(req.user.username);
+  const destinationRoot = userDir(req.user.username);
+  await ensureNoSymlinkPath(sourceRoot, sourceDir.full);
+  await ensureNoSymlinkPath(destinationRoot, destinationDir.full);
+  const sourceStat = await fs.promises.lstat(sourceDir.full).catch((err) => {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw httpErr(404, 'Source folder not found');
+    throw err;
+  });
+  const destinationStat = await fs.promises.lstat(destinationDir.full).catch((err) => {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw httpErr(404, 'Destination folder not found');
+    throw err;
+  });
+  if (!sourceStat.isDirectory() || sourceStat.isSymbolicLink()) throw httpErr(400, 'Source must be a folder');
+  if (!destinationStat.isDirectory() || destinationStat.isSymbolicLink())
+    throw httpErr(400, 'Destination must be a folder');
+
+  const plans = [];
+  const sourceNames = new Set();
+  const nameKey = (name) => process.platform === 'win32' || process.platform === 'darwin'
+    ? name.toLowerCase()
+    : name;
+  const occupiedNames = new Set((await fs.promises.readdir(destinationDir.full)).map(nameKey));
+  for (const name of payload.items) {
+    if (typeof name !== 'string' || !name || /[\\/]/.test(name) || name === '.' || name === '..' ||
+        name.toLowerCase() === '.vault-tmp')
+      throw httpErr(400, 'Invalid item name');
+    const key = nameKey(name);
+    if (sourceNames.has(key)) throw httpErr(400, 'Duplicate item name');
+    sourceNames.add(key);
+
+    const sourceRel = path.posix.join(sourceDir.rel, name);
+    const source = resolveRel(req.user.username, sourceRel);
+    const itemStat = await fs.promises.lstat(source.full).catch((err) => {
+      if (err.code === 'ENOENT') throw httpErr(404, 'Item not found: ' + name);
+      throw err;
+    });
+    if (!itemStat.isFile() && !itemStat.isDirectory())
+      throw httpErr(400, 'Unsupported item type: ' + name);
+    if (itemStat.isSymbolicLink()) throw httpErr(400, 'Symbolic links cannot be copied');
+    if (itemStat.isDirectory()) {
+      const relative = path.relative(source.full, destinationDir.full);
+      if (!relative || !path.isAbsolute(relative) && relative !== '..' &&
+          !relative.startsWith('..' + path.sep))
+        throw httpErr(400, 'A folder cannot be copied into itself');
+    }
+
+    let destinationName = name;
+    if (occupiedNames.has(nameKey(destinationName))) {
+      const parsed = path.parse(name);
+      const makeCopyName = (number) =>
+        'Copy' + (number > 1 ? ' (' + number + ')' : '') + ' - ' + parsed.name + parsed.ext;
+      for (let suffix = 1; ; suffix++) {
+        destinationName = makeCopyName(suffix);
+        if (!occupiedNames.has(nameKey(destinationName))) break;
+      }
+    }
+    occupiedNames.add(nameKey(destinationName));
+    plans.push({
+      source: source.full,
+      destination: path.join(destinationDir.full, destinationName),
+      name: destinationName,
+      nextRel: path.posix.join(destinationDir.rel, destinationName),
+    });
+  }
+
+  const stagingRoot = path.join(userDir(req.user.username), '.vault-tmp', 'copy-' + crypto.randomBytes(16).toString('hex'));
+  await fs.promises.mkdir(stagingRoot, { recursive: true });
+  let scannedEntries = 0;
+  async function copyEntry(source, destination) {
+    const stat = await fs.promises.lstat(source);
+    if (stat.isSymbolicLink()) throw httpErr(400, 'Selected folders contain symbolic links and cannot be copied');
+    if (stat.isFile()) {
+      await fs.promises.copyFile(source, destination, fs.constants.COPYFILE_EXCL);
+      return;
+    }
+    if (!stat.isDirectory()) throw httpErr(400, 'Selected folders contain unsupported file types');
+    await fs.promises.mkdir(destination);
+    for (const entry of await fs.promises.readdir(source, { withFileTypes: true })) {
+      if (entry.name.toLowerCase() === '.vault-tmp') continue;
+      scannedEntries++;
+      if (scannedEntries > MAX_COPY_ENTRIES)
+        throw httpErr(413, 'Copy exceeded the 500,000 entry limit');
+      await copyEntry(path.join(source, entry.name), path.join(destination, entry.name));
+    }
+  }
+
+  const staged = [];
+  const created = [];
+  try {
+    for (let i = 0; i < plans.length; i++) {
+      const plan = plans[i];
+      const temporary = path.join(stagingRoot, String(i));
+      await copyEntry(plan.source, temporary);
+      staged.push({ ...plan, temporary });
+    }
+    for (const plan of staged) {
+      const destinationExists = await fs.promises.lstat(plan.destination).then(
+        () => true,
+        (err) => {
+          if (err.code === 'ENOENT') return false;
+          throw err;
+        }
+      );
+      if (destinationExists)
+        throw httpErr(409, 'A copy destination already exists; refresh the folder and try again');
+      await fs.promises.rename(plan.temporary, plan.destination);
+      created.push(plan.destination);
+    }
+  } catch (err) {
+    for (const destination of created.reverse()) {
+      try { await fs.promises.rm(destination, { recursive: true, force: true }); }
+      catch (rollbackError) { console.error('Could not roll back copied item:', rollbackError); }
+    }
+    if (err.status) throw err;
+    if (err.code === 'EEXIST' || err.code === 'ENOTEMPTY')
+      throw httpErr(409, 'A copy destination already exists; refresh the folder and try again');
+    throw err;
+  } finally {
+    try { await fs.promises.rm(stagingRoot, { recursive: true, force: true }); }
+    catch (err) { console.error('Could not remove copy staging directory:', err); }
+  }
+  res.json({ copied: plans.map((plan) => plan.nextRel), count: plans.length });
+});
+
 async function collectDirectoryEntries(directory, archivePath, collected, maxFiles = Infinity, fileCounter = { count: 0 }) {
   const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   if (!entries.length) {
@@ -1019,7 +1233,7 @@ function archiveOutputFolderName(fileName) {
   const extension = [...SEVEN_ZIP_COMPOUND_EXTENSIONS, '.7z', '.arj', '.bz2', '.cab', '.chm', '.cpio',
     '.cramfs', '.deb', '.dmg', '.fat', '.hfs', '.iso', '.lha', '.lzh', '.lzma', '.nsis',
     '.ntfs', '.rar', '.rpm', '.squashfs', '.tar', '.taz', '.tbz', '.tbz2', '.tgz', '.tlz',
-    '.txz', '.udf', '.vhd', '.vhdx', '.wim', '.xar', '.xz', '.z', '.zip']
+    '.txz', '.udf', '.vhd', '.vhdx', '.wim', '.xar', '.xz', '.z', '.jar', '.zip']
     .find((candidate) => lower.endsWith(candidate));
   return cleanName(extension ? fileName.slice(0, -extension.length) : fileName) || 'Archive';
 }
@@ -1105,14 +1319,14 @@ app.post('/api/extract', requireAuth, async (req, res) => {
   const archiveRel = path.posix.join(base.rel, payload.name);
   const archivePath = resolveRel(req.user.username, archiveRel).full;
   const archiveStat = await fs.promises.lstat(archivePath).catch((err) => {
-    if (err.code === 'ENOENT') throw httpErr(404, 'ZIP file not found');
+    if (err.code === 'ENOENT') throw httpErr(404, 'Archive file not found');
     throw err;
   });
   if (!archiveStat.isFile() || archiveStat.isSymbolicLink()) throw httpErr(400, 'Select an archive file');
   const extension = archiveExtension(payload.name);
-  if (extension !== '.zip' && !SEVEN_ZIP_EXTENSIONS.has(extension))
+  if (extension !== '.zip' && extension !== '.jar' && !SEVEN_ZIP_EXTENSIONS.has(extension))
     throw httpErr(400, 'This archive format is not supported');
-  if (extension !== '.zip') {
+  if (extension !== '.zip' && extension !== '.jar') {
     const result = await extractWithSevenZip(archivePath, base, userDir(req.user.username), payload.name, archiveStat);
     return res.json(result);
   }
@@ -1137,7 +1351,7 @@ app.post('/api/extract', requireAuth, async (req, res) => {
   } catch (err) {
     await fs.promises.rm(destination, { recursive: true, force: true });
     if (err.status) throw err;
-    throw httpErr(400, 'Could not extract ZIP archive');
+    throw httpErr(400, 'Could not extract archive');
   }
 });
 
@@ -1156,7 +1370,7 @@ app.post('/api/archive/view', requireAuth, async (req, res) => {
   });
   if (!archiveStat.isFile() || archiveStat.isSymbolicLink()) throw httpErr(400, 'Select an archive file');
   const extension = archiveExtension(payload.name);
-  if (extension !== '.zip' && !SEVEN_ZIP_EXTENSIONS.has(extension))
+  if (extension !== '.zip' && extension !== '.jar' && !SEVEN_ZIP_EXTENSIONS.has(extension))
     throw httpErr(400, 'This archive format is not supported');
 
   const tempRoot = path.join(userDir(req.user.username), '.vault-tmp');
@@ -1166,7 +1380,7 @@ app.post('/api/archive/view', requireAuth, async (req, res) => {
   await fs.promises.mkdir(container);
   try {
     let workspace;
-    if (extension === '.zip') {
+    if (extension === '.zip' || extension === '.jar') {
       workspace = path.join(container, archiveOutputFolderName(payload.name));
       await fs.promises.mkdir(workspace);
       await extractZipToDirectory(archivePath, workspace);
@@ -1196,12 +1410,174 @@ app.post('/api/archive/view', requireAuth, async (req, res) => {
   }
 });
 
+function decompileJarClasses(classes) {
+  const entries = [...classes].map(([name, bytes]) => [name, Uint8Array.from(bytes)]);
+  const worker = new Worker(path.join(__dirname, 'java-decompiler-worker.js'), {
+    workerData: entries,
+    transferList: entries.map(([, bytes]) => bytes.buffer),
+    resourceLimits: { maxOldGenerationSizeMb: 768, maxYoungGenerationSizeMb: 64, stackSizeMb: 8 },
+  });
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (err, sources) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (err) {
+        worker.terminate().catch((terminateErr) => console.error('Could not stop Java decompiler worker:', terminateErr));
+        reject(err);
+      } else resolve(sources);
+    };
+    const timeout = setTimeout(() => finish(httpErr(504, 'JAR decompilation timed out after 5 minutes')), 5 * 60 * 1000);
+    worker.once('message', (result) => {
+      if (result.error) return finish(httpErr(422, 'Could not decompile this JAR: ' + result.error));
+      finish(null, result.sources);
+    });
+    worker.once('error', (err) => {
+      console.error('Java decompiler worker failed:', err);
+      finish(httpErr(422, 'Could not decompile this JAR'));
+    });
+    worker.once('exit', (code) => {
+      if (!settled) finish(httpErr(422, 'Java decompiler worker exited with code ' + code));
+    });
+  });
+}
+
+async function collectJarClasses(directory) {
+  const classes = new Map();
+  const relativePaths = new Map();
+  let totalBytes = 0;
+  async function walk(current) {
+    for (const entry of await fs.promises.readdir(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.class')) continue;
+      const relativePath = path.relative(directory, full).split(path.sep).join('/');
+      if (relativePath.toLowerCase().startsWith('meta-inf/versions/')) continue;
+      const stat = await fs.promises.stat(full);
+      totalBytes += stat.size;
+      if (totalBytes > MAX_JAR_DECOMPILE_BYTES)
+        throw httpErr(413, 'JAR contains more than 128 MB of Java class files');
+      if (classes.size >= MAX_JAR_DECOMPILE_CLASSES)
+        throw httpErr(413, 'JAR contains more than 2,000 Java class files');
+      const name = relativePath.slice(0, -'.class'.length);
+      classes.set(name, await fs.promises.readFile(full));
+      relativePaths.set(name, relativePath);
+    }
+  }
+  await walk(directory);
+  return { classes, relativePaths };
+}
+
+app.post('/api/jar/decompile', requireAuth, async (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload.path !== 'string' || typeof payload.name !== 'string' ||
+      !payload.name || /[\\/]/.test(payload.name) || payload.name === '.' || payload.name === '..' ||
+      path.extname(payload.name).toLowerCase() !== '.jar')
+    throw httpErr(400, 'Select a JAR file to decompile');
+
+  const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+  if (nodeMajor < 22 || nodeMajor === 22 && nodeMinor < 7)
+    throw httpErr(503, 'JAR decompilation requires Node.js 22.7 or newer on the server');
+
+  const base = resolveRel(req.user.username, payload.path);
+  const archiveRel = path.posix.join(base.rel, payload.name);
+  const archivePath = resolveRel(req.user.username, archiveRel).full;
+  const archiveStat = await fs.promises.lstat(archivePath).catch((err) => {
+    if (err.code === 'ENOENT') throw httpErr(404, 'JAR file not found');
+    throw err;
+  });
+  if (!archiveStat.isFile() || archiveStat.isSymbolicLink()) throw httpErr(400, 'Select a JAR file');
+
+  for (const [token, view] of archiveViews) {
+    if (view.username !== req.user.username || !view.decompiled ||
+        view.sourcePath !== base.rel || view.name !== payload.name ||
+        view.sourceSize !== archiveStat.size || view.sourceMtimeMs !== archiveStat.mtimeMs ||
+        view.sourceCtimeMs !== archiveStat.ctimeMs)
+      continue;
+    if (Date.now() - view.lastUsedAt >= ARCHIVE_VIEW_IDLE_MS) {
+      archiveViews.delete(token);
+      await fs.promises.rm(view.cleanupRoot, { recursive: true, force: true });
+      continue;
+    }
+    if (!fs.existsSync(view.root)) {
+      archiveViews.delete(token);
+      continue;
+    }
+    view.lastUsedAt = Date.now();
+    return res.json({
+      path: '@archive/' + token,
+      name: payload.name,
+      decompiled: view.decompiledCount,
+      cached: true,
+    });
+  }
+
+  const tempRoot = path.join(userDir(req.user.username), '.vault-tmp');
+  await fs.promises.mkdir(tempRoot, { recursive: true });
+  const token = crypto.randomBytes(32).toString('hex');
+  const container = path.join(tempRoot, 'archive-view-' + token);
+  const workspace = path.join(container, archiveOutputFolderName(payload.name));
+  await fs.promises.mkdir(container);
+  try {
+    await fs.promises.mkdir(workspace);
+    await extractZipToDirectory(archivePath, workspace);
+    const { classes, relativePaths } = await collectJarClasses(workspace);
+    if (!classes.size) throw httpErr(400, 'This JAR contains no Java class files');
+    const sources = await decompileJarClasses(classes);
+    let sourceBytes = 0;
+    let decompiled = 0;
+    for (const [name, source] of Object.entries(sources)) {
+      const classPath = relativePaths.get(name);
+      if (!classPath || typeof source !== 'string') continue;
+      sourceBytes += Buffer.byteLength(source);
+      if (sourceBytes > MAX_JAR_DECOMPILED_BYTES)
+        throw httpErr(413, 'Decompiled source exceeds the 256 MB limit');
+      const parsedClassPath = path.posix.parse(classPath);
+      const sourceDirectory = path.join(workspace, parsedClassPath.dir);
+      let sourceName = parsedClassPath.name + '.java';
+      for (let suffix = 1; fs.existsSync(path.join(sourceDirectory, sourceName)); suffix++)
+        sourceName = parsedClassPath.name + '.decompiled' + (suffix === 1 ? '' : '-' + suffix) + '.java';
+      const sourcePath = path.join(sourceDirectory, sourceName);
+      await fs.promises.writeFile(sourcePath, source, { flag: 'wx' });
+      decompiled++;
+    }
+    if (!decompiled) throw httpErr(422, 'The Java decompiler could not produce source from this JAR');
+    archiveViews.set(token, {
+      username: req.user.username,
+      name: payload.name,
+      sourcePath: base.rel,
+      root: workspace,
+      cleanupRoot: container,
+      decompiled: true,
+      decompiledCount: decompiled,
+      sourceSize: archiveStat.size,
+      sourceMtimeMs: archiveStat.mtimeMs,
+      sourceCtimeMs: archiveStat.ctimeMs,
+      lastUsedAt: Date.now(),
+    });
+    res.json({ path: '@archive/' + token, name: payload.name, decompiled, cached: false });
+  } catch (err) {
+    await fs.promises.rm(container, { recursive: true, force: true });
+    if (err.status) throw err;
+    console.error('Could not decompile JAR:', err);
+    throw httpErr(422, 'Could not decompile this JAR');
+  }
+});
+
 app.post('/api/archive/view/close', requireAuth, async (req, res) => {
   const token = req.body && req.body.token;
   if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token))
     throw httpErr(400, 'Invalid archive view');
   const view = archiveViews.get(token);
   if (!view || view.username !== req.user.username) throw httpErr(404, 'Temporary archive view not found');
+  if (view.decompiled) {
+    view.lastUsedAt = Date.now();
+    return res.json({ closed: true, cached: true });
+  }
   archiveViews.delete(token);
   await fs.promises.rm(view.cleanupRoot, { recursive: true, force: true });
   res.json({ closed: true });

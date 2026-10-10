@@ -140,6 +140,9 @@ main{max-width:1200px;margin:0 auto;padding:1.4rem}
 .dt{font-family:var(--px);font-size:10px;letter-spacing:.06em;line-height:1.6}
 .upload-hint{font-size:12px}
 .drow{display:flex;flex-wrap:wrap;gap:.6rem;justify-content:center;margin-top:.3rem}
+.upload-option{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.45rem .6rem;margin-top:.35rem;font-size:11px;cursor:pointer}
+.upload-option input{accent-color:var(--ac);width:14px;height:14px;margin:0}
+.upload-option .muted{flex-basis:100%;font-size:10px}
 #overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(6,6,10,.86);backdrop-filter:blur(8px);font-family:var(--px);font-size:16px;color:var(--ac);text-shadow:0 0 20px var(--ac);border:3px dashed var(--ac);margin:14px;border-radius:14px;pointer-events:none;animation:fadeIn .15s}
 
 /* files panel */
@@ -167,10 +170,11 @@ select:focus{border-color:var(--ac)}
 .seg button:hover{color:var(--text)}
 .seg button.on{background:hsl(var(--hue) 100% 62% / .15);color:var(--ac)}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;padding-bottom:4px}
-.card{position:relative;border-radius:6px;background:rgba(255,255,255,.035);border:1px solid var(--line);overflow:hidden;cursor:pointer;user-select:none;-webkit-user-select:none;transition:transform .18s,border-color .18s,box-shadow .18s,background .18s}
+.files .card[hidden]{display:none!important}
+.card{position:relative;border-radius:6px;background:rgba(255,255,255,.035);border:1px solid var(--line);overflow:hidden;cursor:pointer;user-select:none;-webkit-user-select:none;transition:border-color .18s,box-shadow .18s,background .18s}
 .card.in{animation:pop .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0) * 28ms)}
 .card::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,var(--ac),var(--ac2));transform:scaleX(0);transform-origin:left;transition:transform .25s}
-.card:hover{transform:translateY(-3px);border-color:hsl(var(--hue) 100% 62% / .55);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 22px var(--acg);background:rgba(255,255,255,.06)}
+.card:hover{border-color:hsl(var(--hue) 100% 62% / .55);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 22px var(--acg);background:rgba(255,255,255,.06)}
 .card:hover::after{transform:scaleX(1)}
 .card.selected{border-color:var(--ac);background:hsl(var(--hue) 100% 62% / .1);box-shadow:0 0 18px var(--acg)}
 .card.selected::after{transform:scaleX(1)}
@@ -200,7 +204,6 @@ select:focus{border-color:var(--ac)}
 .files.list .thumb svg{width:24px;height:24px}
 .files.list .info{flex:1}
 .files.list .act{position:static;opacity:1;transform:none;padding-right:.8rem}
-.files.list .card:hover{transform:translateX(3px)}
 .empty{text-align:center;padding:3rem 1rem;color:var(--muted)}
 
 /* modal */
@@ -216,6 +219,15 @@ select:focus{border-color:var(--ac)}
 #mbody img,#mbody video{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 20px 80px rgba(0,0,0,.6),0 0 40px var(--acg)}
 #mbody iframe{width:100%;height:100%;border:0;border-radius:8px;background:#fff}
 #mbody pre{width:100%;max-width:1000px;height:100%;overflow:auto;padding:1.2rem;border-radius:8px;background:#0a0a11;border:1px solid var(--line);font-size:13px;line-height:1.6;font-family:inherit;white-space:pre-wrap;word-break:break-word;align-self:start}
+#mbody pre.code-preview{tab-size:2}
+#mbody pre.code-preview .hljs-comment,#mbody pre.code-preview .hljs-quote{color:#7f8798;font-style:italic}
+#mbody pre.code-preview .hljs-keyword,#mbody pre.code-preview .hljs-selector-tag,#mbody pre.code-preview .hljs-built_in{color:#69c9df}
+#mbody pre.code-preview .hljs-string,#mbody pre.code-preview .hljs-regexp,#mbody pre.code-preview .hljs-addition{color:#9bd18b}
+#mbody pre.code-preview .hljs-number,#mbody pre.code-preview .hljs-literal,#mbody pre.code-preview .hljs-variable,#mbody pre.code-preview .hljs-template-variable{color:#e9b875}
+#mbody pre.code-preview .hljs-title,#mbody pre.code-preview .hljs-title.class_,#mbody pre.code-preview .hljs-title.function_,#mbody pre.code-preview .hljs-type{color:#c5a4eb}
+#mbody pre.code-preview .hljs-attr,#mbody pre.code-preview .hljs-attribute,#mbody pre.code-preview .hljs-property{color:#8db9e8}
+#mbody pre.code-preview .hljs-meta,#mbody pre.code-preview .hljs-section{color:#e8a8b8}
+#mbody pre.code-preview .hljs-deletion{color:#e89090}
 #mbody pre.raw-bytes{white-space:pre;word-break:normal;font-size:12px;line-height:1.5}
 #mbody audio{width:min(520px,90%)}
 .nopreview{text-align:center;color:var(--muted)}

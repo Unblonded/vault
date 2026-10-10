@@ -23,7 +23,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=transfer-type-1">
+<link rel="stylesheet" href="/styles.css?v=stable-card-hover-1">
 </head>
 <body>
 <canvas id="bg"></canvas>
@@ -93,6 +93,11 @@
             <button class="btn primary" type="button" data-i="upload">Browse files</button>
             <button class="btn" id="updir" type="button" data-i="folderup">Upload folder</button>
           </div>
+          <label class="upload-option" for="chunked-upload">
+            <input id="chunked-upload" type="checkbox">
+            <span>Use chunked uploads for files over 90 MB</span>
+            <span class="muted">Recommended for large files and reverse proxies</span>
+          </label>
         </div>
       </div></div></div>
     </section>
@@ -106,7 +111,7 @@
         </div>
         <div class="crumbs" id="crumbs"></div>
         <div class="toolbar">
-          <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="search this folder   ( / )"></div>
+          <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="search folder"></div>
           <span class="selection-hint" title="Click a card to open. Ctrl/Cmd-click to select; Shift-click to select a range. On touch devices, use checkmarks to select.">Click to open · Ctrl/Cmd-click to select · Shift-click for a range · tap checkmarks on touch devices</span>
           <select id="sort"><option value="date">Newest</option><option value="name">Name</option><option value="size">Largest</option></select>
           <button class="btn" id="newf" data-i="folderplus">New folder</button>
@@ -135,6 +140,7 @@
     <div class="mact">
       <button class="btn icon" id="mprev" data-i="left"></button>
       <button class="btn icon" id="mnext" data-i="right"></button>
+      <button class="btn hidden" id="mdecompile" type="button" data-i="decompile">Decompile</button>
       <button class="btn" id="mtext" type="button">Text</button>
       <button class="btn" id="mbytes" type="button">Bytes</button>
       <button class="btn" id="mrename" type="button">Rename</button>
@@ -183,6 +189,7 @@
 <input type="file" id="pick" multiple hidden>
 <input type="file" id="pickdir" webkitdirectory multiple hidden>
 
-<script src="/app.js?v=single-click-open-1" defer></script>
+<script src="/vendor/highlight.min.js?v=11.12.0-static-1" defer></script>
+<script src="/app.js?v=smooth-search-results-1" defer></script>
 </body>
 </html>

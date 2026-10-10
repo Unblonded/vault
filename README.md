@@ -2,14 +2,26 @@
 
 Vault is a self-hosted file browser and storage server. It supports Windows, macOS, and Linux and provides authenticated, per-user file storage, uploads, previews, sharing, archive operations, and transfer and disk metrics.
 
-Click or tap a file or folder once to open it. Use Ctrl/Cmd-click to select items, then Shift-click to select a range; on touch devices, use the always-visible card checkmarks. **Select all** selects the visible items. Choose **Download selected** to start a separate, original-file download for each selected item. Files inside selected folders are included and downloaded individually (folder structure is not preserved). If the browser asks, allow multiple automatic downloads for Vault; if only one file starts, enable that permission in the browser's site settings. Very large selections are limited to 5,000 files.
+The Upload panel has a **Use chunked uploads for files over 90 MB** option, enabled by default. It sends large files in 8 MiB chunks (up to three at once), which is recommended behind reverse proxies. The choice is saved in the browser. Turn it off to send each file as one request; servers or proxies may reject large single requests.
+
+Folder cards show the total size of regular files in that folder and its subfolders. Hidden `.vault-tmp` workspaces and symbolic links are excluded from the calculation.
+
+Click or tap a file or folder once to open it. Use Ctrl/Cmd-click to select items, then Shift-click to select a range; on touch devices, use the always-visible card checkmarks. **Select all** selects the visible items. Press Ctrl/Cmd+C to copy selected files and folders, navigate to the destination, then press Ctrl/Cmd+V to paste them. Existing names are kept when available; collisions are named `Copy - <name>`, with numbered prefixes for further collisions. Folder copies include nested files and empty folders but omit hidden `.vault-tmp` workspaces. Choose **Download selected** to start a separate, original-file download for each selected item. Files inside selected folders are included and downloaded individually (folder structure is not preserved). If the browser asks, allow multiple automatic downloads for Vault; if only one starts, enable that permission in the browser's site settings. Very large selections are limited to 5,000 files.
+
+Use **Expand** in the Files panel heading for the full-screen explorer view. Vault remembers that expanded/collapsed choice in the browser.
 
 ## Requirements
 
-- Node.js 18.15 or newer
+- Node.js 18.15 or newer (Node.js 22.7 or newer for JAR decompilation)
 - npm
 - A modern browser
 - Optional: 7-Zip for extracting archive formats other than ZIP
+
+Open a `.jar` file and choose **Decompile** to browse its contents with generated Java source files alongside the originals. JAR decompilation runs on the Vault server, does not require Java or 7-Zip, and requires Node.js 22.7 or newer. Each JAR is limited to 2,000 class files and 128 MB of class data.
+
+Closing a decompiled workspace returns to the original folder but keeps its generated files cached for the same unchanged JAR. Choosing **Decompile** again reopens that workspace without reprocessing the JAR; it is removed after two hours of inactivity. Vault never runs JAR code: it reads the archive as ZIP data and analyzes `.class` files using the JavaScript CFR decompiler in an isolated, memory-limited worker.
+
+Source files are shown with language-aware syntax highlighting where supported. The highlighter and language definitions are served locally; if a language definition is unavailable, the file remains readable as plain text.
 
 ## Install
 

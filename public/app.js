@@ -23,6 +23,7 @@ const ICON = {
   folderup:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 16v-5M9.5 13.5L12 11l2.5 2.5"/>',
   share:'<path d="M10 13a5 5 0 0 0 7.1 0l3-3A5 5 0 0 0 13 2.9l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 11 21.1l1.7-1.7"/>',
   edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/>',
+  decompile:'<path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/><path d="m10 8-3 4 3 4M14 8l3 4-3 4"/>',
   palette:'<circle cx="13.5" cy="6.5" r=".6"/><circle cx="17.5" cy="10.5" r=".6"/><circle cx="8.5" cy="7.5" r=".6"/><circle cx="6.5" cy="12.5" r=".6"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-4.9-4.5-9-10-9z"/>'
 };
 const svg = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
@@ -35,10 +36,56 @@ const EXT = {
 const ARCHIVE_EXTENSIONS = [
   '.tar.bz2', '.tar.gz', '.tar.xz', '.7z', '.arj', '.bz2', '.cab', '.chm', '.cpio',
   '.cramfs', '.deb', '.dmg', '.fat', '.hfs', '.iso', '.lha', '.lzh', '.lzma', '.nsis',
-  '.ntfs', '.rar', '.rpm', '.squashfs', '.tar', '.taz', '.tbz', '.tbz2', '.tgz', '.tlz',
+  '.jar', '.ntfs', '.rar', '.rpm', '.squashfs', '.tar', '.taz', '.tbz', '.tbz2', '.tgz', '.tlz',
   '.txz', '.udf', '.vhd', '.vhdx', '.wim', '.xar', '.xz', '.z', '.zip'
 ];
 const isArchiveFile = (name) => ARCHIVE_EXTENSIONS.some((extension) => name.toLowerCase().endsWith(extension));
+const isJarFile = (name) => name.toLowerCase().endsWith('.jar');
+const CODE_LANGUAGES = {
+  bash:'bash', bat:'dos', c:'c', cjs:'javascript', conf:'ini', cpp:'cpp', cs:'csharp', css:'css',
+  diff:'diff', dockerfile:'dockerfile', go:'go', graphql:'graphql', h:'c', hpp:'cpp', htm:'xml', html:'xml',
+  ini:'ini', java:'java', js:'javascript', json:'json', jsonc:'json', kt:'kotlin', kts:'kotlin',
+  less:'less', lua:'lua', makefile:'makefile', md:'markdown', mjs:'javascript', nim:'nim',
+  php:'php', pl:'perl', properties:'ini', ps1:'powershell', py:'python', pyw:'python',
+  r:'r', rb:'ruby', rs:'rust', scss:'scss', sh:'bash', sql:'sql', swift:'swift',
+  cfg:'ini', toml:'ini', ts:'typescript', tsx:'typescript', vb:'vbnet', xml:'xml', xhtml:'xml',
+  yaml:'yaml', yml:'yaml', zsh:'bash',
+};
+const codeLanguage = (name) => {
+  const extension = name.split('.').pop().toLowerCase();
+  return CODE_LANGUAGES[extension] || null;
+};
+const syntaxLanguageLoads = new Map();
+async function loadCodeLanguage(language) {
+  if (window.hljs.getLanguage(language)) return true;
+  if (!syntaxLanguageLoads.has(language)) {
+    syntaxLanguageLoads.set(language, new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/vendor/languages/' + encodeURIComponent(language) + '.min.js';
+      script.onload = () => window.hljs.getLanguage(language)
+        ? resolve()
+        : reject(new Error('The syntax highlighter did not register ' + language));
+      script.onerror = () => reject(new Error('Could not load the ' + language + ' syntax highlighter'));
+      document.head.append(script);
+    }).catch((err) => {
+      syntaxLanguageLoads.delete(language);
+      throw err;
+    }));
+  }
+  try {
+    await syntaxLanguageLoads.get(language);
+    return true;
+  } catch (err) {
+    toast(err.message + '; showing plain text instead.', 'err');
+    return false;
+  }
+}
+async function setPreviewText(pre, text, name) {
+  const language = codeLanguage(name);
+  if (!language || !await loadCodeLanguage(language)) { pre.textContent = text; return; }
+  pre.classList.add('code-preview', 'language-' + language);
+  pre.innerHTML = window.hljs.highlight(text, { language, ignoreIllegals: true }).value;
+}
 const COL = { image:'#22d3ee', video:'#f472b6', audio:'#fbbf24', pdf:'#f43f5e', text:'#34d399', file:'#a78bfa', dir:'#fbbf24' };
 const kind = (n) => { const e = n.split('.').pop().toLowerCase(); for (const k in EXT) if (EXT[k].split(' ').includes(e)) return k; return 'file'; };
 const fmt = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : n < 1073741824 ? (n/1048576).toFixed(1) + ' MB' : (n/1073741824).toFixed(2) + ' GB';
@@ -248,10 +295,11 @@ function startPolling() {
 }
 const stopPolling = () => { pollGen++; };
 
-let explorerMode = false;
+let explorerMode = LS.get('vault-explorer-mode') === 'expanded';
 function updateExplorerMode() {
   document.body.classList.toggle('explorer-mode', explorerMode);
   $('#explorer-toggle').textContent = explorerMode ? 'Collapse' : 'Expand';
+  LS.set('vault-explorer-mode', explorerMode ? 'expanded' : 'collapsed');
 }
 
 /* ================= main frame loop ================= */
@@ -307,6 +355,8 @@ let cwd = '', items = [], list = [], pl = [], view = LS.get('vault-file-view') =
 let archiveView = null;
 const selected = new Set();
 let selectionAnchor = null;
+let copyClipboard = null;
+let folderSizeGeneration = 0;
 const MOVE_ITEMS_TYPE = 'application/x-vault-items';
 let suppressCardClickUntil = 0;
 
@@ -318,6 +368,15 @@ addEventListener('hashchange', () => {
   if ($('#app').classList.contains('hidden')) return;
   cwd = hashPath(); selected.clear(); selectionAnchor = null; $('#q').value = ''; closePreview(); refresh(true);
 });
+
+function sortedItems(query) {
+  const sort = $('#sort').value;
+  const compare = sort === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
+    : sort === 'size' ? (a, b) => b.size - a.size
+    : (a, b) => new Date(b.modified) - new Date(a.modified);
+  return items.filter((item) => item.name.toLowerCase().includes(query))
+    .sort((a, b) => (a.type === b.type ? 0 : a.type === 'dir' ? -1 : 1) || compare(a, b));
+}
 
 function applyView() {
   LS.set('vault-file-view', view);
@@ -349,7 +408,7 @@ function enableMoveDropTarget(element, destination) {
 }
 $('#vg').onclick = () => { view = 'grid'; applyView(); };
 $('#vl').onclick = () => { view = 'list'; applyView(); };
-$('#q').oninput = () => render(false); $('#sort').onchange = () => render(false);
+$('#q').oninput = () => renderSearchResults(); $('#sort').onchange = () => render(false);
 addEventListener('keydown', (e) => {
   if (!$('#dlg').classList.contains('hidden')) { if (e.key === 'Escape') $('#dcancel').click(); return; }
   if (!$('#share-dialog').classList.contains('hidden')) { if (e.key === 'Escape') $('#share-close').click(); return; }
@@ -363,6 +422,17 @@ addEventListener('keydown', (e) => {
   const target = e.target;
   if (target instanceof Element && (target.isContentEditable || target.closest('input,textarea,select,[contenteditable="true"]'))) return;
   if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); $('#q').focus(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c' && selected.size) {
+    e.preventDefault();
+    copyClipboard = { from: cwd, items: items.filter((item) => selected.has(item.name)).map((item) => item.name) };
+    toast('Copied ' + copyClipboard.items.length + (copyClipboard.items.length === 1 ? ' item' : ' items') + ' to Vault clipboard');
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'v' && copyClipboard) {
+    e.preventDefault();
+    pasteItems(copyClipboard, cwd);
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') {
     e.preventDefault();
     selected.clear();
@@ -387,6 +457,7 @@ addEventListener('keydown', (e) => {
     if (!item || !list.includes(item)) return;
     e.preventDefault();
     if (item.type === 'dir') go(join(cwd, item.name));
+    else if (isJarFile(item.name)) openPreview(pl.indexOf(item));
     else if (isArchiveFile(item.name)) openArchiveView(item);
     else openPreview(pl.indexOf(item));
   }
@@ -422,12 +493,7 @@ function renderCrumbs() {
 }
 
 function render(anim) {
-  const q = $('#q').value.trim().toLowerCase(), s = $('#sort').value;
-  const cmp = s === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
-    : s === 'size' ? (a, b) => b.size - a.size
-    : (a, b) => new Date(b.modified) - new Date(a.modified);
-  list = items.filter((f) => f.name.toLowerCase().includes(q));
-  list.sort((a, b) => (a.type === b.type ? 0 : a.type === 'dir' ? -1 : 1) || cmp(a, b));
+  list = sortedItems($('#q').value.trim().toLowerCase());
   for (const name of selected) if (!items.some((f) => f.name === name)) selected.delete(name);
   if (selectionAnchor && !items.some((f) => f.name === selectionAnchor)) selectionAnchor = null;
   pl = list.filter((f) => f.type === 'file');
@@ -438,6 +504,82 @@ function render(anim) {
   $('#empty').textContent = items.length ? 'No items match your search.' : 'This folder is empty. Drop something in.';
   $('#count').textContent = [nd && nd + (nd === 1 ? ' folder' : ' folders'), nf && nf + (nf === 1 ? ' file' : ' files')].filter(Boolean).join(' / ');
   renderCrumbs(); updateSelectionActions();
+}
+
+function renderSearchResults() {
+  const query = $('#q').value.trim().toLowerCase();
+  const box = $('#files');
+  const cards = new Map([...box.querySelectorAll('.card')].map((element) => [element.dataset.name, element]));
+  const oldPositions = new Map();
+  for (const element of box.querySelectorAll('.card:not([hidden])'))
+    oldPositions.set(element.dataset.name, element.getBoundingClientRect());
+
+  list = sortedItems(query);
+  pl = list.filter((item) => item.type === 'file');
+  const visibleNames = new Set(list.map((item) => item.name));
+  for (const element of box.querySelectorAll('.card'))
+    element.hidden = !visibleNames.has(element.dataset.name);
+
+  for (const item of list) {
+    const element = cards.get(item.name);
+    if (element) box.append(element);
+  }
+
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reducedMotion) {
+    for (const element of box.querySelectorAll('.card:not([hidden])')) {
+      const previous = oldPositions.get(element.dataset.name);
+      const current = element.getBoundingClientRect();
+      if (!previous) {
+        element.animate(
+          [{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'scale(1)' }],
+          { duration: 180, easing: 'ease-out' }
+        );
+      } else if (previous.left !== current.left || previous.top !== current.top) {
+        element.animate(
+          [
+            { transform: `translate(${previous.left - current.left}px, ${previous.top - current.top}px)` },
+            { transform: 'translate(0, 0)' },
+          ],
+          { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' }
+        );
+      }
+    }
+  }
+
+  $('#empty').classList.toggle('hidden', list.length > 0);
+  $('#empty').textContent = items.length ? 'No items match your search.' : 'This folder is empty. Drop something in.';
+  updateSelectionActions();
+}
+
+async function loadFolderSizes(folderPath, generation) {
+  const folders = list.filter((item) => item.type === 'dir');
+  if (!folders.length) return;
+  try {
+    const result = await api('/api/folder-sizes', {
+      method:'POST',
+      headers: JSONH,
+      body: JSON.stringify({ path: folderPath, folders: folders.map((item) => item.name) })
+    });
+    if (generation !== folderSizeGeneration || cwd !== folderPath) return;
+    for (const entry of result.sizes) {
+      const item = items.find((candidate) => candidate.name === entry.name && candidate.type === 'dir');
+      const cardElement = [...$('#files').querySelectorAll('.card')]
+        .find((candidate) => candidate.dataset.name === entry.name);
+      if (!item || !cardElement) continue;
+      const modified = new Date(item.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+      cardElement.querySelector('.meta').textContent = 'Folder · ' + fmt(entry.size) + ' · ' + modified;
+    }
+  } catch (e) {
+    if (generation !== folderSizeGeneration || cwd !== folderPath) return;
+    $('#files').querySelectorAll('.card').forEach((cardElement) => {
+      const item = items.find((candidate) => candidate.name === cardElement.dataset.name && candidate.type === 'dir');
+      if (!item) return;
+      const modified = new Date(item.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+      cardElement.querySelector('.meta').textContent = 'Folder · Size unavailable · ' + modified;
+    });
+    toast('Could not calculate folder sizes: ' + e.message, 'err');
+  }
 }
 
 function updateSelectionActions() {
@@ -483,7 +625,9 @@ function card(f, i, anim) {
   const el = document.createElement('div'); el.className = 'card' + (anim ? ' in' : '') + (selected.has(f.name) ? ' selected' : ''); el.style.setProperty('--i', Math.min(i, 24));
   el.dataset.name = f.name;
   if (!isDir && isArchiveFile(f.name))
-    el.title = 'Click to browse in a temporary workspace; use the extract action to create a regular folder';
+    el.title = isJarFile(f.name)
+      ? 'Click to preview; choose Decompile to browse Java source in a temporary workspace'
+      : 'Click to browse in a temporary workspace; use the extract action to create a regular folder';
   el.draggable = true;
   el.ondragstart = (e) => {
     if (e.target.closest('button,a')) { e.preventDefault(); return; }
@@ -507,6 +651,7 @@ function card(f, i, anim) {
       return;
     }
     if (isDir) go(rel);
+    else if (isJarFile(f.name)) openPreview(pl.indexOf(f));
     else if (isArchiveFile(f.name)) openArchiveView(f);
     else openPreview(pl.indexOf(f));
   };
@@ -534,7 +679,8 @@ function card(f, i, anim) {
   const info = document.createElement('div'); info.className = 'info';
   const nm = document.createElement('div'); nm.className = 'name2'; nm.textContent = f.name; nm.title = f.name;
   const mt = document.createElement('div'); mt.className = 'meta';
-  mt.textContent = (isDir ? 'Folder' : fmt(f.size)) + ' · ' + new Date(f.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  mt.textContent = (isDir ? 'Folder · Calculating size' : fmt(f.size)) + ' · ' +
+    new Date(f.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
   info.append(nm, mt);
   const act = document.createElement('div'); act.className = 'act';
   if (!isDir) {
@@ -784,6 +930,21 @@ async function moveItems(payload, destination) {
     toast(e.message, 'err');
   }
 }
+async function pasteItems(payload, destination) {
+  if (!payload || typeof payload.from !== 'string' || !Array.isArray(payload.items) || !payload.items.length) return;
+  try {
+    const result = await api('/api/copy', {
+      method:'POST',
+      headers: JSONH,
+      body: JSON.stringify({ from: payload.from, to: destination, items: payload.items })
+    });
+    await refresh(false);
+    toast('Copied ' + result.count + (result.count === 1 ? ' item' : ' items') +
+      (result.copied.length ? ': ' + result.copied.map((name) => name.split('/').pop()).join(', ') : ''));
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
 async function extractZip(file) {
   try {
     const result = await api('/api/extract', {
@@ -807,6 +968,26 @@ async function openArchiveView(file) {
     go(result.path);
   } catch (e) {
     toast(e.message, 'err');
+  }
+}
+async function openJarDecompiledView(file) {
+  const button = $('#mdecompile');
+  button.disabled = true;
+  try {
+    const result = await api('/api/jar/decompile', {
+      method:'POST',
+      headers: JSONH,
+      body: JSON.stringify({ path: cwd, name: file.name })
+    });
+    closePreview();
+    go(result.path);
+    toast(result.cached
+      ? 'Reopened the existing decompiled workspace'
+      : 'Created ' + result.decompiled + ' decompiled source files');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    button.disabled = false;
   }
 }
 async function exitArchiveView() {
@@ -878,6 +1059,8 @@ async function openPreview(i) {
   cur = i;
   const f = pl[i], rel = join(cwd, f.name), k = kind(f.name), vu = urlFor('view', rel), body = $('#mbody');
   $('#mname').textContent = f.name; $('#mdl').href = urlFor('download', rel); $('#mrename').onclick = () => renameFile(f);
+  $('#mdecompile').classList.toggle('hidden', !isJarFile(f.name));
+  $('#mdecompile').onclick = () => openJarDecompiledView(f);
   $('#mtext').classList.remove('on'); $('#mbytes').classList.remove('on');
   let rawData = null;
   $('#modal').classList.remove('hidden'); document.body.style.overflow = 'hidden';
@@ -888,7 +1071,7 @@ async function openPreview(i) {
   else if (k === 'pdf') { const fr = document.createElement('iframe'); fr.src = vu; body.append(fr); }
   else if (k === 'text' && f.size <= 2 * 1024 * 1024) {
     const pre = document.createElement('pre'); pre.textContent = 'Loading…'; body.append(pre);
-    try { const t = await (await fetch(vu, { credentials:'same-origin' })).text(); if (cur === i) pre.textContent = t; }
+    try { const t = await (await fetch(vu, { credentials:'same-origin' })).text(); if (cur === i) await setPreviewText(pre, t, f.name); }
     catch { pre.textContent = 'Could not load file.'; }
   } else {
     const d = document.createElement('div'); d.className = 'nopreview';
@@ -931,7 +1114,8 @@ async function openPreview(i) {
       }
       if (cur !== i || $('#modal').classList.contains('hidden')) return;
       if (mode === 'text') {
-        pre.textContent = new TextDecoder('utf-8').decode(rawData) + (rawData.truncated ? '\n\n[Showing first 256 KB]' : '');
+        await setPreviewText(pre, new TextDecoder('utf-8').decode(rawData) +
+          (rawData.truncated ? '\n\n[Showing first 256 KB]' : ''), f.name);
       } else {
         const lines = [];
         for (let start = 0; start < rawData.length; start += 16) {
@@ -999,6 +1183,9 @@ function xhrUpload(entry, base, onProg, onSent) {
 }
 
 const CHUNK_AT = 90 * 1024 * 1024;
+const chunkedUploadToggle = $('#chunked-upload');
+chunkedUploadToggle.checked = LS.get('vault-chunked-uploads') !== 'off';
+chunkedUploadToggle.onchange = () => LS.set('vault-chunked-uploads', chunkedUploadToggle.checked ? 'on' : 'off');
 function putChunk(id, offset, blob, onProg) {
   return new Promise((resolve) => {
     const x = new XMLHttpRequest();
@@ -1047,16 +1234,15 @@ async function chunkedUpload(entry, base, onProg, onSent) {
           if (r.ok) { ok = true; doneB.set(o, end - o); report(); }
           else {
             last = r.error || last;
-            if (r.timedOut) fatal = last;
-            else if (r.status === 401) { showLogin(); fatal = 'Session expired'; }
-            else if (r.status >= 400 && r.status < 500) fatal = last;
-            else await new Promise((res) => setTimeout(res, 600 * (a + 1)));
+            if (r.status === 401) { showLogin(); fatal = 'Session expired'; }
+            else if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) fatal = last;
+            else await new Promise((res) => setTimeout(res, Math.min(5000, 600 * (a + 1))));
           }
         }
         if (!ok && !fatal) fatal = last;
       }
     };
-    await worker();
+    await Promise.all(Array.from({ length: Math.min(3, offsets.length) }, () => worker()));
     if (fatal) throw new Error(fatal);
     onSent();
     const controller = new AbortController();
@@ -1076,7 +1262,8 @@ async function chunkedUpload(entry, base, onProg, onSent) {
 
 async function uploadAll(entries, dirs = []) {
   if (!entries.length && !dirs.length) return;
-  const base = cwd, total = entries.reduce((a, e) => a + e.file.size, 0) || 1;
+  const base = cwd, chunkingEnabled = chunkedUploadToggle.checked;
+  const total = entries.reduce((a, e) => a + e.file.size, 0) || 1;
   const row = document.createElement('div'); row.className = 'up';
   row.innerHTML = '<div class="n"></div><div class="seg-bar"><i></i></div>'; $('#tray').append(row);
   const label = row.firstChild, bar = row.querySelector('i');
@@ -1099,7 +1286,9 @@ async function uploadAll(entries, dirs = []) {
       const e = entries[idx++];
       const prog = (n) => { live.set(e, n); upd(); };
       const sent = () => { saving.add(e); upd(); };
-      const err = e.file.size > CHUNK_AT ? await chunkedUpload(e, base, prog, sent) : await xhrUpload(e, base, prog, sent);
+      const err = chunkingEnabled && e.file.size > CHUNK_AT
+        ? await chunkedUpload(e, base, prog, sent)
+        : await xhrUpload(e, base, prog, sent);
       live.delete(e);
       saving.delete(e);
       if (err) { failed++; firstErr = firstErr || err; } else { doneBytes += e.file.size; doneCount++; }
@@ -1132,7 +1321,7 @@ async function walk(entry, prefix, out) {
   }
 }
 
-$('#drop').onclick = () => $('#pick').click();
+$('#drop').onclick = (e) => { if (e.target.closest('.upload-option')) return; $('#pick').click(); };
 $('#updir').onclick = (e) => { e.stopPropagation(); $('#pickdir').click(); };
 $('#pick').onchange = (e) => { uploadAll([...e.target.files].map((f) => ({ file: f, rel: f.name }))); e.target.value = ''; };
 $('#pickdir').onchange = (e) => { uploadAll([...e.target.files].map((f) => ({ file: f, rel: f.webkitRelativePath || f.name }))); e.target.value = ''; };
@@ -1159,10 +1348,15 @@ async function refresh(anim) {
     const data = await api(urlFor('files', cwd));
     items = data.items;
     archiveView = data.archiveView;
+    const sizeGeneration = ++folderSizeGeneration;
     $('#archive-view-bar').classList.toggle('hidden', !archiveView);
     if (archiveView)
-      $('#archive-view-label').textContent = 'Temporary workspace: ' + archiveView.name + ' · Edits are discarded when closed or idle for 2 hours.';
+      $('#archive-view-label').textContent = (archiveView.decompiled ? 'Decompiled JAR workspace: ' : 'Temporary workspace: ') +
+        (archiveView.decompiled
+          ? archiveView.name + ' · Cached after closing until 2 hours idle; the original JAR is unchanged.'
+          : archiveView.name + ' · Edits are discarded when closed or idle for 2 hours.');
     render(anim);
+    loadFolderSizes(cwd, sizeGeneration);
   }
   catch (e) { if (e.message === 'Folder not found' && cwd) { go(''); return; } }
   try {
