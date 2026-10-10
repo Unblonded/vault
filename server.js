@@ -600,10 +600,32 @@ app.delete('/api/item', requireAuth, (req, res) => {
 });
 
 app.patch('/api/item', requireAuth, (req, res) => {
-  const f = resolveItem(req, true);
+  const resolved = resolveRel(req.user.username, req.query.path);
+  if (!resolved.rel || resolved.archiveView) throw httpErr(400, 'Cannot rename this item');
+  const root = userDir(req.user.username);
+  const parts = resolved.rel.split('/');
+  let current = root;
+  let stat = fs.lstatSync(root);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw httpErr(400, 'Invalid item path');
+  for (let i = 0; i < parts.length; i++) {
+    current = path.join(current, parts[i]);
+    try { stat = fs.lstatSync(current); }
+    catch (err) {
+      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw httpErr(404, 'Not found');
+      throw err;
+    }
+    if (stat.isSymbolicLink()) throw httpErr(400, 'Symbolic links cannot be renamed');
+    if (i < parts.length - 1 && !stat.isDirectory()) throw httpErr(400, 'Invalid item path');
+  }
+  if (!stat.isFile() && !stat.isDirectory()) throw httpErr(400, 'Unsupported item type');
+  const f = {
+    ...resolved,
+    name: path.basename(resolved.full),
+    isDir: stat.isDirectory(),
+  };
   const requestedName = req.body && req.body.name;
-  if (typeof requestedName !== 'string' || !requestedName.trim()) throw httpErr(400, 'File name required');
-  if (/[\\/]/.test(requestedName)) throw httpErr(400, 'File name cannot contain a path');
+  if (typeof requestedName !== 'string' || !requestedName.trim()) throw httpErr(400, 'Name required');
+  if (/[\\/]/.test(requestedName)) throw httpErr(400, 'Name cannot contain a path');
   const name = cleanName(requestedName.trim());
   if (name.toLowerCase() === '.vault-tmp') throw httpErr(400, 'Invalid file name');
   if (name === f.name) return res.json({ renamed: false, name });
@@ -614,16 +636,20 @@ app.patch('/api/item', requireAuth, (req, res) => {
   const movedShares = [];
   fs.renameSync(f.full, destination);
   for (const [id, share] of shares) {
-    if (share.username === req.user.username && share.rel === f.rel) {
+    if (share.username === req.user.username &&
+        (share.rel === f.rel || f.isDir && share.rel.startsWith(f.rel + '/'))) {
       movedShares.push([id, share.rel]);
-      share.rel = nextRel;
+      share.rel = nextRel + share.rel.slice(f.rel.length);
     }
   }
 
   try { saveShares(); }
   catch (e) {
     fs.renameSync(destination, f.full);
-    for (const [id, rel] of movedShares) shares.get(id).rel = rel;
+    for (const [id, rel] of movedShares) {
+      const share = shares.get(id);
+      if (share) share.rel = rel;
+    }
     throw e;
   }
   res.json({ renamed: true, name, path: nextRel });

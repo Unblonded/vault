@@ -259,7 +259,9 @@ select:focus{border-color:var(--ac)}
 /* upload tray + toasts */
 #tray{position:fixed;left:18px;bottom:18px;z-index:70;display:flex;flex-direction:column;gap:8px;width:330px;max-width:calc(100vw - 36px)}
 .up{padding:.7rem .9rem;border-radius:6px;background:rgba(9,9,15,.96);border:1px solid var(--line);border-left:3px solid var(--ac);font-size:12px;backdrop-filter:blur(12px);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 16px var(--acg);animation:slideIn .3s cubic-bezier(.2,.8,.2,1)}
-.up .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.5rem}
+.up .n{display:flex;align-items:center;gap:.6rem;min-width:0;margin-bottom:.5rem}
+.up-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.up-status{flex:none;color:var(--muted);font-size:10px;white-space:nowrap}
 .up .seg-bar{height:8px}
 .up .seg-bar i{transition:width .15s}
 .up.done{border-left-color:var(--ok)}.up.done .seg-bar i{background:var(--ok)}

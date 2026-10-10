@@ -703,6 +703,9 @@ function card(f, i, anim) {
     const zip = document.createElement('button'); zip.className = 'btn'; zip.innerHTML = svg('zip', 16); zip.title = 'Create ZIP in this folder'; zip.setAttribute('aria-label', 'Create ZIP for folder ' + f.name);
     zip.onclick = (e) => { e.stopPropagation(); createZip([f.name]); };
     act.append(zip);
+    const rename = document.createElement('button'); rename.className = 'btn'; rename.innerHTML = svg('edit', 16); rename.title = 'Rename folder'; rename.setAttribute('aria-label', 'Rename folder ' + f.name);
+    rename.onclick = (e) => { e.stopPropagation(); renameFile(f); };
+    act.append(rename);
   }
   const rm = document.createElement('button'); rm.className = 'btn danger'; rm.innerHTML = svg('trash', 16); rm.title = 'Delete'; rm.onclick = (e) => { e.stopPropagation(); del(f); };
   act.append(rm);
@@ -757,9 +760,10 @@ async function del(f) {
 }
 
 async function renameFile(f) {
+  const isDir = f.type === 'dir';
   const name = await showDialog({
-    title: 'RENAME FILE',
-    message: 'Enter a new name. Include an extension to change the file type.',
+    title: isDir ? 'RENAME FOLDER' : 'RENAME FILE',
+    message: isDir ? 'Enter a new folder name.' : 'Enter a new name. Include an extension to change the file type.',
     value: f.name,
     confirmText: 'Rename'
   });
@@ -1265,8 +1269,8 @@ async function uploadAll(entries, dirs = []) {
   const base = cwd, chunkingEnabled = chunkedUploadToggle.checked;
   const total = entries.reduce((a, e) => a + e.file.size, 0) || 1;
   const row = document.createElement('div'); row.className = 'up';
-  row.innerHTML = '<div class="n"></div><div class="seg-bar"><i></i></div>'; $('#tray').append(row);
-  const label = row.firstChild, bar = row.querySelector('i');
+  row.innerHTML = '<div class="n"><span class="up-name"></span><span class="up-status"></span></div><div class="seg-bar"><i></i></div>'; $('#tray').append(row);
+  const label = row.querySelector('.up-name'), status = row.querySelector('.up-status'), bar = row.querySelector('i');
   let doneBytes = 0, doneCount = 0, failed = 0, firstErr = ''; const live = new Map(), saving = new Set(), samples = [];
   const upd = () => {
     let l = doneBytes; live.forEach((v) => (l += v));
@@ -1275,8 +1279,11 @@ async function uploadAll(entries, dirs = []) {
     const [t0, b0] = samples[0], sp = now > t0 ? (l - b0) / ((now - t0) / 1000) : 0;
     bar.style.width = Math.min(doneBytes === total ? 100 : 95, l / total * 100) + '%';
     const name = entries.length === 1 ? entries[0].file.name : 'Uploading ' + doneCount + ' / ' + entries.length + ' files';
-    const waitingText = saving.size ? ' · Waiting for server…' : '';
-    label.textContent = name + waitingText + (!waitingText && sp > 1024 ? ' · ' + fmtS(sp) + ' · ~' + fmtDur(Math.max(0, total - l) / sp) : '');
+    label.textContent = name;
+    label.title = entries.length === 1 ? entries[0].file.name : name;
+    status.textContent = saving.size
+      ? 'Waiting for server…'
+      : sp > 1024 ? fmtS(sp) + ' · ~' + fmtDur(Math.max(0, total - l) / sp) : '';
   };
   upd(); const iv = setInterval(upd, 500);
   for (const d of dirs) { try { await api('/api/mkdir', { method:'POST', headers: JSONH, body: JSON.stringify({ path: base, name: d }) }); } catch {} }
@@ -1300,6 +1307,8 @@ async function uploadAll(entries, dirs = []) {
   bar.style.width = failed ? Math.min(95, doneBytes / total * 100) + '%' : '100%';
   row.classList.add(failed ? 'fail' : 'done');
   label.textContent = failed ? doneCount + ' uploaded, ' + failed + ' failed' : 'Uploaded ' + doneCount + (doneCount === 1 ? ' file' : ' files');
+  label.title = label.textContent;
+  status.textContent = '';
   if (failed) toast(failed + ' upload' + (failed > 1 ? 's' : '') + ' failed: ' + firstErr, 'err');
   setTimeout(() => row.remove(), failed ? 30000 : 3000);
   refresh(false);

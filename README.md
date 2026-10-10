@@ -6,6 +6,8 @@ Vault does not impose a per-file upload size limit. Actual maximums depend on av
 
 Folder cards show the total size of regular files in that folder and its subfolders. Hidden `.vault-tmp` workspaces and symbolic links are excluded from the calculation.
 
+Use the rename action on a file or folder card to change its name. Renaming a folder also updates Vault share links for items inside it.
+
 Click or tap a file or folder once to open it. Use Ctrl/Cmd-click to select items, then Shift-click to select a range; on touch devices, use the always-visible card checkmarks. **Select all** selects the visible items. Press Ctrl/Cmd+C to copy selected files and folders, navigate to the destination, then press Ctrl/Cmd+V to paste them. Existing names are kept when available; collisions are named `Copy - <name>`, with numbered prefixes for further collisions. Folder copies include nested files and empty folders but omit hidden `.vault-tmp` workspaces. Choose **Download selected** to start a separate, original-file download for each selected item. Files inside selected folders are included and downloaded individually (folder structure is not preserved). If the browser asks, allow multiple automatic downloads for Vault; if only one starts, enable that permission in the browser's site settings. Very large selections are limited to 5,000 files.
 
 Use **Expand** in the Files panel heading for the full-screen explorer view. Vault remembers that expanded/collapsed choice in the browser.
