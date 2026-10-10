@@ -352,11 +352,12 @@ $('#lo').onclick = async () => { await api('/api/logout', { method:'POST' }); sh
 
 /* ================= state + navigation ================= */
 let cwd = '', items = [], list = [], pl = [], view = LS.get('vault-file-view') === 'list' ? 'list' : 'grid', cur = -1;
+const FILES_PAGE_SIZE = 200;
+let renderedItemCount = 0;
 let archiveView = null;
 const selected = new Set();
 let selectionAnchor = null;
 let copyClipboard = null;
-let folderSizeGeneration = 0;
 const MOVE_ITEMS_TYPE = 'application/x-vault-items';
 let suppressCardClickUntil = 0;
 
@@ -498,7 +499,8 @@ function render(anim) {
   if (selectionAnchor && !items.some((f) => f.name === selectionAnchor)) selectionAnchor = null;
   pl = list.filter((f) => f.type === 'file');
   const box = $('#files'); box.textContent = '';
-  list.forEach((f, i) => box.append(card(f, i, anim)));
+  renderedItemCount = 0;
+  appendNextFilePage(anim);
   const nd = items.filter((f) => f.type === 'dir').length, nf = items.length - nd;
   $('#empty').classList.toggle('hidden', list.length > 0);
   $('#empty').textContent = items.length ? 'No items match your search.' : 'This folder is empty. Drop something in.';
@@ -506,80 +508,27 @@ function render(anim) {
   renderCrumbs(); updateSelectionActions();
 }
 
-function renderSearchResults() {
-  const query = $('#q').value.trim().toLowerCase();
+function appendNextFilePage(anim = false) {
   const box = $('#files');
-  const cards = new Map([...box.querySelectorAll('.card')].map((element) => [element.dataset.name, element]));
-  const oldPositions = new Map();
-  for (const element of box.querySelectorAll('.card:not([hidden])'))
-    oldPositions.set(element.dataset.name, element.getBoundingClientRect());
-
-  list = sortedItems(query);
-  pl = list.filter((item) => item.type === 'file');
-  const visibleNames = new Set(list.map((item) => item.name));
-  for (const element of box.querySelectorAll('.card'))
-    element.hidden = !visibleNames.has(element.dataset.name);
-
-  for (const item of list) {
-    const element = cards.get(item.name);
-    if (element) box.append(element);
+  box.querySelector('.files-more')?.remove();
+  const end = Math.min(renderedItemCount + FILES_PAGE_SIZE, list.length);
+  const fragment = document.createDocumentFragment();
+  for (let i = renderedItemCount; i < end; i++)
+    fragment.append(card(list[i], i, anim && list.length <= 120));
+  renderedItemCount = end;
+  box.append(fragment);
+  if (renderedItemCount < list.length) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'btn files-more';
+    more.textContent = 'Show ' + Math.min(FILES_PAGE_SIZE, list.length - renderedItemCount) + ' more (' + (list.length - renderedItemCount) + ' remaining)';
+    more.onclick = () => appendNextFilePage(false);
+    box.append(more);
   }
-
-  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reducedMotion) {
-    for (const element of box.querySelectorAll('.card:not([hidden])')) {
-      const previous = oldPositions.get(element.dataset.name);
-      const current = element.getBoundingClientRect();
-      if (!previous) {
-        element.animate(
-          [{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'scale(1)' }],
-          { duration: 180, easing: 'ease-out' }
-        );
-      } else if (previous.left !== current.left || previous.top !== current.top) {
-        element.animate(
-          [
-            { transform: `translate(${previous.left - current.left}px, ${previous.top - current.top}px)` },
-            { transform: 'translate(0, 0)' },
-          ],
-          { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' }
-        );
-      }
-    }
-  }
-
-  $('#empty').classList.toggle('hidden', list.length > 0);
-  $('#empty').textContent = items.length ? 'No items match your search.' : 'This folder is empty. Drop something in.';
-  updateSelectionActions();
 }
 
-async function loadFolderSizes(folderPath, generation) {
-  const folders = list.filter((item) => item.type === 'dir');
-  if (!folders.length) return;
-  try {
-    const result = await api('/api/folder-sizes', {
-      method:'POST',
-      headers: JSONH,
-      body: JSON.stringify({ path: folderPath, folders: folders.map((item) => item.name) })
-    });
-    if (generation !== folderSizeGeneration || cwd !== folderPath) return;
-    for (const entry of result.sizes) {
-      const item = items.find((candidate) => candidate.name === entry.name && candidate.type === 'dir');
-      const cardElement = [...$('#files').querySelectorAll('.card')]
-        .find((candidate) => candidate.dataset.name === entry.name);
-      if (!item || !cardElement) continue;
-      const modified = new Date(item.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
-      cardElement.querySelector('.meta').textContent = 'Folder · ' + fmt(entry.size) + ' · ' + modified;
-    }
-  } catch (e) {
-    if (generation !== folderSizeGeneration || cwd !== folderPath) return;
-    $('#files').querySelectorAll('.card').forEach((cardElement) => {
-      const item = items.find((candidate) => candidate.name === cardElement.dataset.name && candidate.type === 'dir');
-      if (!item) return;
-      const modified = new Date(item.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
-      cardElement.querySelector('.meta').textContent = 'Folder · Size unavailable · ' + modified;
-    });
-    toast('Could not calculate folder sizes: ' + e.message, 'err');
-  }
+function renderSearchResults() {
+  render(false);
 }
 
 function updateSelectionActions() {
@@ -679,7 +628,7 @@ function card(f, i, anim) {
   const info = document.createElement('div'); info.className = 'info';
   const nm = document.createElement('div'); nm.className = 'name2'; nm.textContent = f.name; nm.title = f.name;
   const mt = document.createElement('div'); mt.className = 'meta';
-  mt.textContent = (isDir ? 'Folder · Calculating size' : fmt(f.size)) + ' · ' +
+  mt.textContent = (isDir ? 'Folder' : fmt(f.size)) + ' · ' +
     new Date(f.modified).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
   info.append(nm, mt);
   const act = document.createElement('div'); act.className = 'act';
@@ -1357,7 +1306,6 @@ async function refresh(anim) {
     const data = await api(urlFor('files', cwd));
     items = data.items;
     archiveView = data.archiveView;
-    const sizeGeneration = ++folderSizeGeneration;
     $('#archive-view-bar').classList.toggle('hidden', !archiveView);
     if (archiveView)
       $('#archive-view-label').textContent = (archiveView.decompiled ? 'Decompiled JAR workspace: ' : 'Temporary workspace: ') +
@@ -1365,7 +1313,6 @@ async function refresh(anim) {
           ? archiveView.name + ' · Cached after closing until 2 hours idle; the original JAR is unchanged.'
           : archiveView.name + ' · Edits are discarded when closed or idle for 2 hours.');
     render(anim);
-    loadFolderSizes(cwd, sizeGeneration);
   }
   catch (e) { if (e.message === 'Folder not found' && cwd) { go(''); return; } }
   try {

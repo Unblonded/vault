@@ -221,19 +221,22 @@ app.get('/api/access-ok', (req, res) => {
 });
 
 // ---------- browse / folders ----------
-app.get('/api/files', requireAuth, (req, res) => {
+app.get('/api/files', requireAuth, async (req, res) => {
   const resolved = resolveRel(req.user.username, req.query.path);
   const { full, rel } = resolved;
-  if (!fs.existsSync(full) || !fs.statSync(full).isDirectory()) throw httpErr(404, 'Folder not found');
-  const items = [];
-  for (const d of fs.readdirSync(full, { withFileTypes: true })) {
-    if (!d.isFile() && !d.isDirectory()) continue;
-    if (d.name.toLowerCase() === '.vault-tmp') continue;
+  const directoryStat = await fs.promises.stat(full).catch((err) => {
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw httpErr(404, 'Folder not found');
+    throw err;
+  });
+  if (!directoryStat.isDirectory()) throw httpErr(404, 'Folder not found');
+  const entries = await fs.promises.readdir(full, { withFileTypes: true });
+  const items = (await Promise.all(entries.map(async (d) => {
+    if ((!d.isFile() && !d.isDirectory()) || d.name.toLowerCase() === '.vault-tmp') return null;
     try {
-      const s = fs.statSync(path.join(full, d.name));
-      items.push({ name: d.name, type: d.isDirectory() ? 'dir' : 'file', size: d.isDirectory() ? 0 : s.size, modified: s.mtime });
-    } catch {}
-  }
+      const stat = await fs.promises.stat(path.join(full, d.name));
+      return { name: d.name, type: d.isDirectory() ? 'dir' : 'file', size: d.isDirectory() ? 0 : stat.size, modified: stat.mtime };
+    } catch { return null; }
+  }))).filter(Boolean);
   const archiveView = resolved.archiveView
     ? {
       name: resolved.archiveView.name,
