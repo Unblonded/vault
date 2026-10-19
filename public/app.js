@@ -86,7 +86,7 @@ async function setPreviewText(pre, text, name) {
   pre.classList.add('code-preview', 'language-' + language);
   pre.innerHTML = window.hljs.highlight(text, { language, ignoreIllegals: true }).value;
 }
-const COL = { image:'#22d3ee', video:'#f472b6', audio:'#fbbf24', pdf:'#f43f5e', text:'#34d399', file:'#a78bfa', dir:'#fbbf24' };
+const COL = { image:'#64d2ff', video:'#ff375f', audio:'#ff9f0a', pdf:'#ff453a', text:'#30d158', file:'#bf5af2', dir:'#5ac8fa' };
 const kind = (n) => { const e = n.split('.').pop().toLowerCase(); for (const k in EXT) if (EXT[k].split(' ').includes(e)) return k; return 'file'; };
 const fmt = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : n < 1073741824 ? (n/1048576).toFixed(1) + ' MB' : (n/1073741824).toFixed(2) + ' GB';
 const fmtDur = (s) => s < 60 ? Math.ceil(s) + 's' : s < 3600 ? Math.floor(s/60) + 'm ' + String(Math.floor(s%60)).padStart(2,'0') + 's' : Math.floor(s/3600) + 'h ' + String(Math.floor(s%3600/60)).padStart(2,'0') + 'm';
@@ -105,7 +105,7 @@ const JSONH = { 'Content-Type': 'application/json' };
 function toast(m, t) {
   const e = document.createElement('div'); e.className = 'toast ' + (t || '');
   e.innerHTML = '<div class="tt"></div><div class="tm"></div><i class="tp"></i>';
-  e.querySelector('.tt').textContent = t === 'err' ? 'ERROR' : 'NOTICE';
+  e.querySelector('.tt').textContent = t === 'err' ? 'Error' : 'Notice';
   e.querySelector('.tm').textContent = m;
   $('#toasts').append(e);
   setTimeout(() => { e.classList.add('out'); setTimeout(() => e.remove(), 260); }, 3500);
@@ -149,41 +149,108 @@ async function api(url, opts = {}, prompt = true) {
   return d;
 }
 
-/* ================= theme / hue ================= */
-const THEMES = [['Mono', 200], ['Cyan', 185], ['Green', 145], ['Violet', 268], ['Red', 352], ['Amber', 42], ['Pink', 322]];
-let themeIdx = (+LS.get('vault-theme') || 0) % THEMES.length, hue = 200;
+/* ================= theme / accent ================= */
+const THEMES = [['Blue', 211, 100], ['Indigo', 238, 85], ['Purple', 280, 75], ['Pink', 338, 95], ['Orange', 30, 100], ['Mint', 168, 70], ['Graphite', 220, 8]];
+let themeIdx = (+LS.get('vault-theme') || 0) % THEMES.length, hue = THEMES[themeIdx][1];
 $('#themename').textContent = THEMES[themeIdx][0];
 $('#theme').onclick = () => {
   themeIdx = (themeIdx + 1) % THEMES.length; LS.set('vault-theme', themeIdx);
   $('#themename').textContent = THEMES[themeIdx][0];
+  if (reduceMotion) requestAnimationFrame(() => drawBg(0));
 };
 
-/* ================= background particles ================= */
+/* ================= background: slow drifting light orbs ================= */
+// Drawn at 1/4 resolution and stretched by CSS: gradients upscale smoothly and the glass panels blur it further.
 const bg = $('#bg'), bctx = bg.getContext('2d'), mouse = { x: -999, y: -999 };
-let P = [];
-function sizeBg() {
-  bg.width = innerWidth; bg.height = innerHeight;
-  const n = Math.min(90, Math.floor(innerWidth * innerHeight / 17000));
-  P = Array.from({ length: n }, () => ({ x: Math.random() * bg.width, y: Math.random() * bg.height, vx: (Math.random() - .5) * .35, vy: (Math.random() - .5) * .35, r: Math.random() * 1.4 + .4 }));
+const ORBS = [
+  { dh: 0, r: .62, ph: 0.4, sp: 1.0, a: .55 },
+  { dh: 38, r: .5, ph: 2.1, sp: .8, a: .42 },
+  { dh: -42, r: .55, ph: 4.0, sp: .65, a: .4 },
+  { dh: 70, r: .42, ph: 5.3, sp: .9, a: .26 },
+  { dh: -18, r: .38, ph: 1.2, sp: 1.15, a: .3 },
+];
+let px = 0, py = 0;
+function sizeBg() { bg.width = Math.ceil(innerWidth / 4); bg.height = Math.ceil(innerHeight / 4); if (reduceMotion) drawBg(0); }
+addEventListener('resize', sizeBg);
+function drawBg(ts) {
+  const W = bg.width, H = bg.height, M = Math.max(W, H), t = ts / 1000 * .045, sat = THEMES[themeIdx][2];
+  if (mouse.x > -999) { px += ((mouse.x / innerWidth - .5) - px) * .02; py += ((mouse.y / innerHeight - .5) - py) * .02; }
+  bctx.globalCompositeOperation = 'source-over'; bctx.fillStyle = '#05060a'; bctx.fillRect(0, 0, W, H);
+  bctx.globalCompositeOperation = 'lighter';
+  ORBS.forEach((o, i) => {
+    const x = W * (.5 + .42 * Math.sin(t * o.sp + o.ph)) + px * W * (.04 + i * .015);
+    const y = H * (.5 + .4 * Math.cos(t * o.sp * 1.3 + o.ph * 1.7)) + py * H * (.04 + i * .015);
+    const R = M * o.r, g = bctx.createRadialGradient(x, y, 0, x, y, R), h = hue + o.dh, s = Math.max(sat * .85, 12);
+    g.addColorStop(0, `hsla(${h},${s}%,56%,${o.a})`); g.addColorStop(.38, `hsla(${h},${s}%,46%,${o.a * .7})`); g.addColorStop(.62, `hsla(${h},${s}%,36%,${o.a * .18})`); g.addColorStop(1, `hsla(${h},${s}%,30%,0)`);
+    bctx.fillStyle = g; bctx.fillRect(0, 0, W, H);
+  });
+  bctx.globalCompositeOperation = 'source-over';
 }
-addEventListener('resize', sizeBg); sizeBg();
-function drawBg() {
-  const W = bg.width, H = bg.height; bctx.clearRect(0, 0, W, H);
-  for (const p of P) {
-    p.x += p.vx; p.y += p.vy;
-    if (p.x < 0 || p.x > W) p.vx *= -1; if (p.y < 0 || p.y > H) p.vy *= -1;
-    bctx.fillStyle = `hsla(${hue},100%,70%,.55)`; bctx.beginPath(); bctx.arc(p.x, p.y, p.r, 0, 6.283); bctx.fill();
+sizeBg();
+
+/* ================= liquid glass refraction ================= */
+// Each pane gets its own SVG lens: a displacement map built for its exact size and corner radius that
+// pulls the backdrop inward along the rim, like light bending through thick glass. Chromium is the only
+// engine that applies SVG filters in backdrop-filter; everything else keeps the plain frosted CSS blur.
+const GLASS_SEL = 'header,.panel,.login-card,#dlg form,#share-dialog form,.mbar,.chart-hud';
+const glassOK = !!window.chrome && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
+function glassMap(W, H, r) {
+  const k = .5, w = Math.max(2, Math.ceil(W * k)), h = Math.max(2, Math.ceil(H * k));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d'), img = cx.createImageData(w, h), d = img.data;
+  const band = Math.min(34, Math.min(W, H) / 2.2);
+  r = Math.min(r, W / 2, H / 2);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const px = (x + .5) / k - W / 2, py = (y + .5) / k - H / 2;
+    const qx = Math.abs(px) - (W / 2 - r), qy = Math.abs(py) - (H / 2 - r);
+    let nx, ny, dist;
+    if (qx > 0 && qy > 0) { const l = Math.hypot(qx, qy) || 1; nx = qx / l; ny = qy / l; dist = r - l; }
+    else if (qx > qy) { nx = 1; ny = 0; dist = r - qx; }
+    else { nx = 0; ny = 1; dist = r - qy; }
+    const t = dist < band ? 1 - Math.max(dist, 0) / band : 0, m = t * t * (3 - 2 * t);
+    const i = (y * w + x) * 4;
+    d[i] = 128 - Math.sign(px) * nx * m * 127; d[i + 1] = 128 - Math.sign(py) * ny * m * 127; d[i + 2] = 128; d[i + 3] = 255;
   }
-  bctx.lineWidth = 1;
-  for (let i = 0; i < P.length; i++) {
-    const a = P[i];
-    for (let j = i + 1; j < P.length; j++) {
-      const b = P[j], dx = a.x - b.x, dy = a.y - b.y, d = dx * dx + dy * dy;
-      if (d < 14400) { bctx.strokeStyle = `hsla(${hue},100%,65%,${(1 - d / 14400) * .22})`; bctx.beginPath(); bctx.moveTo(a.x, a.y); bctx.lineTo(b.x, b.y); bctx.stroke(); }
+  cx.putImageData(img, 0, 0);
+  return cv.toDataURL();
+}
+if (glassOK) {
+  const NS = 'http://www.w3.org/2000/svg', defs = document.createElementNS(NS, 'svg');
+  defs.setAttribute('aria-hidden', 'true'); defs.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
+  document.body.prepend(defs);
+  const lenses = new Map(); let lensN = 0;
+  const lens = (el) => {
+    let L = lenses.get(el);
+    if (!L) {
+      const id = 'lg' + lensN++, f = document.createElementNS(NS, 'filter');
+      f.id = id; f.setAttribute('color-interpolation-filters', 'sRGB');
+      f.innerHTML = '<feImage result="map" preserveAspectRatio="none" x="0" y="0"/>' +
+        '<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G"/>';
+      defs.append(f);
+      L = { id, img: f.firstChild, disp: f.lastChild, w: 0, h: 0, timer: 0 };
+      lenses.set(el, L);
+      el.style.backdropFilter = `blur(14px) url(#${id}) saturate(190%) brightness(1.06)`;
     }
-    const mx = a.x - mouse.x, my = a.y - mouse.y, md = mx * mx + my * my;
-    if (md < 25600) { bctx.strokeStyle = `hsla(${hue},100%,70%,${(1 - md / 25600) * .5})`; bctx.beginPath(); bctx.moveTo(a.x, a.y); bctx.lineTo(mouse.x, mouse.y); bctx.stroke(); }
-  }
+    return L;
+  };
+  const ro = new ResizeObserver((entries) => {
+    for (const { target: el } of entries) {
+      const W = el.offsetWidth, H = el.offsetHeight;
+      if (!W || !H) continue;
+      const L = lens(el);
+      // stretch the old map right away so a resizing pane never shows an unmapped strip, then rebuild it once the size settles
+      L.img.setAttribute('width', W); L.img.setAttribute('height', H);
+      L.disp.setAttribute('scale', Math.min(70, Math.min(W, H) * .5));
+      if (Math.abs(W - L.w) < 2 && Math.abs(H - L.h) < 2) continue;
+      clearTimeout(L.timer);
+      L.timer = setTimeout(() => {
+        L.w = el.offsetWidth; L.h = el.offsetHeight;
+        if (!L.w || !L.h) return;
+        L.img.setAttribute('href', glassMap(L.w, L.h, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0));
+      }, L.w ? 160 : 0);
+    }
+  });
+  document.querySelectorAll(GLASS_SEL).forEach((el) => { lens(el); ro.observe(el); });
 }
 let mraf = 0;
 addEventListener('pointermove', (e) => {
@@ -196,8 +263,8 @@ const HISTN = 120;
 const mkG = (key, numId, unitId) => ({ key, nEl: $(numId), uEl: $(unitId), arr: Array(HISTN).fill(0), v: 0, target: 0, peak: 0, n: '', u: '' });
 const G = { down: mkG('down', '#dnum', '#dunit'), up: mkG('up', '#unum', '#uunit') };
 const GRAPH_COLORS = {
-  down: { line: '#58c8ff', fill: 'rgba(88,200,255,.2)', halo: 'rgba(88,200,255,.15)' },
-  up: { line: '#ffb454', fill: 'rgba(255,180,84,.2)', halo: 'rgba(255,180,84,.15)' },
+  down: { line: '#64d2ff', fill: 'rgba(100,210,255,.22)', halo: 'rgba(100,210,255,.18)' },
+  up: { line: '#ff9f0a', fill: 'rgba(255,159,10,.18)', halo: 'rgba(255,159,10,.16)' },
 };
 let graphMax = 65536;
 let lastPoll = performance.now(), ping = 0, fps = 0, uptimeS = 0, NET = { totalUp: 0, totalDown: 0, activeUp: 0, activeDown: 0 };
@@ -213,8 +280,9 @@ function drawNetworkGraph(ts) {
   const canvas = $('#gnet');
   if (!canvas.clientWidth) return;
   const [c, W, H] = sizeCanvas(canvas); c.clearRect(0, 0, W, H);
-  c.strokeStyle = 'rgba(255,255,255,.05)'; c.lineWidth = 1;
+  c.strokeStyle = 'rgba(255,255,255,.045)'; c.lineWidth = 1; c.setLineDash([2, 4]);
   for (let i = 1; i < 4; i++) { const y = Math.round(H * i / 4) + .5; c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
+  c.setLineDash([]); c.lineCap = 'round'; c.lineJoin = 'round';
   const n = Math.min(G.down.arr.length, G.up.arr.length);
   if (n < 2) return;
   const t = Math.min(1, Math.max(0, (ts - lastPoll) / 1000)), dx = W / (n - 1), shift = (1 - t) * 2 * dx;
@@ -229,7 +297,7 @@ function drawNetworkGraph(ts) {
       c.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
     }
     c.lineTo(X(n - 1), Y(arr[n - 1]));
-    c.lineWidth = 2; c.strokeStyle = colors.line; c.shadowColor = colors.line; c.shadowBlur = 9; c.stroke(); c.shadowBlur = 0;
+    c.lineWidth = 2; c.strokeStyle = colors.line; c.shadowColor = colors.line; c.shadowBlur = 6; c.stroke(); c.shadowBlur = 0;
     c.lineTo(X(n - 1), H); c.lineTo(0, H); c.closePath();
     const gr = c.createLinearGradient(0, 0, 0, H);
     gr.addColorStop(0, colors.fill); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -239,7 +307,7 @@ function drawNetworkGraph(ts) {
     c.beginPath(); c.arc(W - 4, y, pulse + 3, 0, 6.283); c.fillStyle = colors.halo; c.fill();
     c.beginPath(); c.arc(W - 4, y, 3, 0, 6.283); c.fillStyle = colors.line; c.fill();
   }
-  c.fillStyle = 'rgba(255,255,255,.35)'; c.font = '10px ui-monospace,Consolas,monospace'; c.textAlign = 'right'; c.fillText(fmtS(graphMax), W - 6, 12); c.textAlign = 'left';
+  c.fillStyle = 'rgba(235,235,245,.4)'; c.font = '500 11px -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif'; c.textAlign = 'right'; c.fillText(fmtS(graphMax), W - 6, 12); c.textAlign = 'left';
 }
 function paintNums() {
   for (const g of Object.values(G)) {
@@ -255,7 +323,7 @@ function paintStats() {
   $('#dact').textContent = NET.activeDown; $('#uact').textContent = NET.activeUp;
   const act = NET.activeDown + NET.activeUp > 0;
   $('#netstate').classList.toggle('live', act);
-  $('#nettext').textContent = act ? NET.activeUp + ' UP / ' + NET.activeDown + ' DOWN ACTIVE' : 'IDLE';
+  $('#nettext').textContent = act ? NET.activeUp + ' up · ' + NET.activeDown + ' down' : 'Idle';
   $('#pingv').textContent = ping + ' ms'; $('#fpsv').textContent = fps; $('#uptv').textContent = fmtDur(uptimeS);
   const disk = NET.diskActivity;
   if (disk && Number.isFinite(disk.activePercent)) {
@@ -267,8 +335,8 @@ function paintStats() {
     $('#disk-activity-pct').textContent = '--%';
   }
   $('#disk-activity-rate').textContent = disk && Number.isFinite(disk.readBytesPerSec) && Number.isFinite(disk.writeBytesPerSec)
-    ? 'READ ' + fmtS(disk.readBytesPerSec) + ' · WRITE ' + fmtS(disk.writeBytesPerSec)
-    : 'READ -- · WRITE --';
+    ? 'Read ' + fmtS(disk.readBytesPerSec) + ' · Write ' + fmtS(disk.writeBytesPerSec)
+    : 'Read — · Write —';
 }
 document.querySelectorAll('.big').forEach((b) => (b.onclick = () => { speedBits = !speedBits; LS.set('vault-bits', speedBits ? '1' : '0'); paintStats(); }));
 
@@ -303,14 +371,14 @@ function updateExplorerMode() {
 }
 
 /* ================= main frame loop ================= */
-let appVisible = false, frames = 0, lastFps = performance.now(), lastHueSet = 0;
+let appVisible = false, frames = 0, lastFps = performance.now(), lastHueSet = 0, lastBg = 0;
 function loop(ts) {
   requestAnimationFrame(loop);
   frames++; if (ts - lastFps >= 1000) { fps = Math.round(frames * 1000 / (ts - lastFps)); frames = 0; lastFps = ts; }
-  const tv = THEMES[themeIdx][1];
-  hue = tv == null ? (reduceMotion ? 200 : (ts / 80) % 360) : tv;
-  if (ts - lastHueSet > 32) { root.style.setProperty('--hue', hue.toFixed(1)); lastHueSet = ts; }
-  if (!reduceMotion) drawBg();
+  const [, th, ts2] = THEMES[themeIdx];
+  hue = reduceMotion ? th : hue + (th - hue) * .08; // ease between accents instead of snapping
+  if (ts - lastHueSet > 32) { root.style.setProperty('--hue', hue.toFixed(1)); root.style.setProperty('--sat', ts2 + '%'); lastHueSet = ts; }
+  if (!reduceMotion && ts - lastBg > 32) { drawBg(ts); lastBg = ts; }
   if (appVisible) {
     paintNums();
     if (!$('#p-net').classList.contains('col')) drawNetworkGraph(ts);
@@ -697,7 +765,7 @@ function showDialog({ title, message = '', value = '', placeholder = '', confirm
 async function del(f) {
   const dir = f.type === 'dir';
   const confirmed = await showDialog({
-    title: dir ? 'DELETE FOLDER' : 'DELETE FILE',
+    title: dir ? 'Delete folder' : 'Delete file',
     message: dir ? 'Delete "' + f.name + '" and everything inside it?' : 'Delete "' + f.name + '"?',
     input: false,
     confirmText: 'Delete',
@@ -711,7 +779,7 @@ async function del(f) {
 async function renameFile(f) {
   const isDir = f.type === 'dir';
   const name = await showDialog({
-    title: isDir ? 'RENAME FOLDER' : 'RENAME FILE',
+    title: isDir ? 'Rename folder' : 'Rename file',
     message: isDir ? 'Enter a new folder name.' : 'Enter a new name. Include an extension to change the file type.',
     value: f.name,
     confirmText: 'Rename'
@@ -970,7 +1038,7 @@ $('#delete-selected').onclick = async () => {
   const message = 'Delete ' + targets.length + ' selected ' + (targets.length === 1 ? 'item' : 'items') +
     (folders ? ', including ' + folders + (folders === 1 ? ' folder' : ' folders') + ' and everything inside' : '') + '?';
   const confirmed = await showDialog({
-    title: 'DELETE SELECTED ITEMS',
+    title: 'Delete selected items',
     message,
     input: false,
     confirmText: 'Delete',
@@ -995,7 +1063,7 @@ $('#delete-selected').onclick = async () => {
 
 /* ---- new folder ---- */
 function askName() {
-  return showDialog({ title: 'NEW FOLDER', placeholder: 'folder name', confirmText: 'Create' });
+  return showDialog({ title: 'New folder', placeholder: 'Folder name', confirmText: 'Create' });
 }
 $('#newf').onclick = async () => {
   const name = await askName();
@@ -1139,6 +1207,27 @@ const CHUNK_AT = 90 * 1024 * 1024;
 const chunkedUploadToggle = $('#chunked-upload');
 chunkedUploadToggle.checked = LS.get('vault-chunked-uploads') !== 'off';
 chunkedUploadToggle.onchange = () => LS.set('vault-chunked-uploads', chunkedUploadToggle.checked ? 'on' : 'off');
+$('#clone-url-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const input = $('#clone-url'), button = $('#clone-url-submit');
+  const url = input.value.trim();
+  if (!url) return;
+  button.disabled = true;
+  button.textContent = 'Downloading…';
+  try {
+    const result = await api('/api/clone-url', {
+      method: 'POST', headers: JSONH, body: JSON.stringify({ path: cwd, url }),
+    });
+    input.value = '';
+    toast('Cloned ' + result.name + ' (' + fmt(result.size) + ')');
+    refresh(false);
+  } catch (error) {
+    toast(error.message, 'err');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Clone into current folder';
+  }
+};
 function putChunk(id, offset, blob, onProg) {
   return new Promise((resolve) => {
     const x = new XMLHttpRequest();

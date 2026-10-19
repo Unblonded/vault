@@ -8,6 +8,10 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const dns = require('dns');
+const http = require('http');
+const https = require('https');
+const net = require('net');
 const { pipeline, Transform } = require('stream');
 const { execFile } = require('child_process');
 const { Worker } = require('worker_threads');
@@ -46,6 +50,7 @@ const MAX_JAR_DECOMPILE_BYTES = 128 * 1024 * 1024;
 const MAX_JAR_DECOMPILED_BYTES = 256 * 1024 * 1024;
 const MAX_FOLDER_SIZE_REQUESTS = 500;
 const MAX_FOLDER_SIZE_SCAN_ENTRIES = 500000;
+const MAX_CLONE_BYTES = 10 * 1024 * 1024 * 1024;
 const MAX_COPY_ITEMS = 500;
 const MAX_COPY_ENTRIES = 500000;
 
@@ -335,6 +340,124 @@ app.post('/api/files', requireAuth, (req, res) => {
   });
 });
 
+function isPublicAddress(address) {
+  const family = net.isIP(address);
+  if (family === 4) {
+    const [a, b, c] = address.split('.').map(Number);
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+      a === 100 && b >= 64 && b <= 127 || a === 169 && b === 254 ||
+      a === 172 && b >= 16 && b <= 31 || a === 192 && (b === 168 || b === 0 && c === 0 || b === 0 && c === 2) ||
+      a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) || a === 203 && b === 0 && c === 113);
+  }
+  if (family === 6) {
+    const normalized = address.toLowerCase();
+    if (normalized.startsWith('::ffff:')) return false;
+    const first = parseInt(normalized.split(':')[0] || '0', 16);
+    return first >= 0x2000 && first <= 0x3fff &&
+      !normalized.startsWith('2001:db8:') && !normalized.startsWith('2001:10:');
+  }
+  return false;
+}
+
+async function openCloneResponse(url, redirects = 0) {
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+    throw httpErr(400, 'Use a public HTTP or HTTPS URL');
+  if (url.port && url.port !== (url.protocol === 'https:' ? '443' : '80'))
+    throw httpErr(400, 'Only standard HTTP and HTTPS ports are supported');
+
+  const addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true }).catch(() => []);
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address)))
+    throw httpErr(400, 'The URL must resolve only to public IP addresses');
+  const address = addresses[0];
+  const transport = url.protocol === 'https:' ? https : http;
+  const response = await new Promise((resolve, reject) => {
+    const options = {
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || undefined,
+      path: url.pathname + url.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'Vault-URL-Clone/1.0', Accept: '*/*' },
+      // Pin the connection to the vetted address. Node 20+ calls lookup with { all: true } and expects an array.
+      lookup: (_hostname, options, callback) => options && options.all
+        ? callback(null, [{ address: address.address, family: address.family }])
+        : callback(null, address.address, address.family),
+      ...(url.protocol === 'https:' && net.isIP(url.hostname) === 0 ? { servername: url.hostname } : {}),
+    };
+    const request = transport.request(options, resolve);
+    request.setTimeout(30000, () => request.destroy(new Error('The remote server timed out')));
+    request.on('error', reject);
+    request.end();
+  });
+
+  if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+    const location = response.headers.location;
+    response.resume();
+    if (!location || redirects >= 5) throw httpErr(400, 'Too many or invalid redirects from URL');
+    return openCloneResponse(new URL(location, url), redirects + 1);
+  }
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    response.resume();
+    throw httpErr(400, 'Remote server returned HTTP ' + response.statusCode);
+  }
+  const length = Number(response.headers['content-length']);
+  if (Number.isFinite(length) && length > MAX_CLONE_BYTES) {
+    response.resume();
+    throw httpErr(413, 'File exceeds the 10 GB URL clone limit');
+  }
+  return response;
+}
+
+function cloneFilename(response, url) {
+  const disposition = response.headers['content-disposition'] || '';
+  const extended = disposition.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+  const regular = disposition.match(/filename\s*=\s*(?:"([^"]*)"|([^;]+))/i);
+  let name = '';
+  try {
+    if (extended) name = decodeURIComponent(extended[1].trim().replace(/^"|"$/g, ''));
+    else if (regular) name = (regular[1] || regular[2]).trim();
+  } catch {}
+  if (!name) name = path.posix.basename(url.pathname);
+  try { name = decodeURIComponent(name); } catch {}
+  return cleanName(path.basename(name)) || 'download';
+}
+
+app.post('/api/clone-url', requireAuth, async (req, res) => {
+  const payload = req.body || {};
+  if (typeof payload.path !== 'string' || typeof payload.url !== 'string' || payload.url.length > 4096)
+    throw httpErr(400, 'Provide a valid URL and destination folder');
+  let url;
+  try { url = new URL(payload.url); } catch { throw httpErr(400, 'Enter a valid URL'); }
+  const destination = targetDir(req.user.username, payload.path, '');
+  const destinationStat = await fs.promises.stat(destination).catch(() => null);
+  if (!destinationStat || !destinationStat.isDirectory()) throw httpErr(404, 'Destination folder not found');
+
+  const response = await openCloneResponse(url);
+  let name = cloneFilename(response, url);
+  const initialName = name;
+  let suffix = 2;
+  while (fs.existsSync(path.join(destination, name))) name = cleanName(initialName + ' (' + suffix++ + ')');
+  const tempDir = path.join(destination, '.vault-tmp');
+  await fs.promises.mkdir(tempDir, { recursive: true });
+  const tempFile = path.join(tempDir, 'clone-' + crypto.randomBytes(16).toString('hex'));
+  let size = 0;
+  const limiter = new Transform({
+    transform(chunk, encoding, callback) {
+      size += chunk.length;
+      callback(size > MAX_CLONE_BYTES ? httpErr(413, 'File exceeds the 10 GB URL clone limit') : null, chunk);
+    },
+  });
+  try {
+    await new Promise((resolve, reject) => pipeline(response, limiter, fs.createWriteStream(tempFile, { flags: 'wx' }), (error) => error ? reject(error) : resolve()));
+    await fs.promises.rename(tempFile, path.join(destination, name));
+  } catch (error) {
+    await fs.promises.rm(tempFile, { force: true }).catch(() => {});
+    if (error.status) throw error;
+    throw httpErr(502, 'Could not download the file: ' + error.message);
+  }
+  res.json({ name, size });
+});
+
 // ---------- chunked upload (big files; stays under Cloudflare's 100 MB request limit) ----------
 const CHUNK = 8 * 1024 * 1024;
 const sessions = new Map();
@@ -520,13 +643,13 @@ ${socialImage}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
-<title>Shared file · VAULT</title>
-<link rel="stylesheet" href="/share.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>Shared file · Vault</title>
+<link rel="stylesheet" href="/share.css?v=glass-1">
 </head>
 <body><main>
-<div class="brand"><img src="/favicon.svg" alt="" width="28" height="28"> VAULT</div>
-<div class="tag">A FILE HAS BEEN SHARED WITH YOU</div>
+<div class="brand"><img src="/favicon.svg" alt="" width="28" height="28"> Vault</div>
+<div class="tag">A file has been shared with you</div>
 <h1>${name}</h1>
 <div class="meta">${escapeHtml(size)} · Download starts only when you choose below.</div>
 <a class="button" href="/s/${req.params.token}/download" rel="noreferrer">Download file</a>

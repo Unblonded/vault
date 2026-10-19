@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VAULT — Private file storage</title>
 <meta name="description" content="A private, secure place to store, browse, and share your files.">
-<meta name="theme-color" content="#06060a">
+<meta name="theme-color" content="#05060a">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="VAULT">
 <meta property="og:title" content="VAULT — Private file storage">
@@ -22,26 +22,26 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=upload-progress-label-1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css?v=glass-1">
 </head>
 <body>
 <canvas id="bg"></canvas>
 
 <div id="login" class="hidden">
   <form class="login-card" id="lf">
-    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">VAULT</span></div>
-    <div class="term"><div>&gt; vault v1.0 // private storage</div><div>&gt; awaiting credentials<span class="caret"></span></div></div>
-    <input class="field" id="u" placeholder="username" autocomplete="username" required autofocus>
-    <input class="field" id="p" type="password" placeholder="password" autocomplete="current-password" required>
-    <button class="btn primary unlock">Unlock</button>
+    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">Vault</span></div>
+    <div class="term">Sign in to your private storage</div>
+    <input class="field" id="u" placeholder="Username" autocomplete="username" required autofocus>
+    <input class="field" id="p" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="btn primary unlock">Sign in</button>
     <div id="lerr"></div>
   </form>
 </div>
 
 <div id="app" class="hidden">
   <header>
-    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">VAULT</span><small>b1.0</small></div>
+    <div class="brand"><img class="mark" src="/favicon.svg" alt=""><span class="name">Vault</span><small>1.0</small></div>
     <div class="hchips"><span class="chip" id="whoami">user</span><span class="chip" id="clock">--:--:--</span></div>
     <div class="hr">
       <button class="btn" id="theme" data-i="palette"><span id="themename">Mono</span></button>
@@ -51,44 +51,44 @@
   <div id="al"></div>
   <main>
     <section class="panel" id="p-net">
-      <div class="ph"><span class="pt">NETWORK</span><span class="pm" id="netstate"><i class="led"></i><span id="nettext">IDLE</span></span><i class="chev"></i></div>
+      <div class="ph"><span class="pt">Network</span><span class="pm" id="netstate"><i class="led"></i><span id="nettext">Idle</span></span><i class="chev"></i></div>
       <div class="pb"><div class="pi"><div class="pbody">
         <div class="gc transfer-chart">
           <div class="chart-hud">
-            <div class="chart-hud-title"><span>TRANSFER RATE</span><span class="chart-legend"><i class="down-key"></i>DOWN <i class="up-key"></i>UP</span></div>
+            <div class="chart-hud-title"><span>Transfer rate</span><span class="chart-legend"><i class="down-key"></i>Down <i class="up-key"></i>Up</span></div>
             <div class="chart-hud-metrics">
               <div class="chart-metric down">
-                <div class="lab"><i></i>DOWNLOAD</div>
+                <div class="lab"><i></i>Download</div>
                 <div class="big" title="Click to switch units"><span class="num" id="dnum">0</span><span class="unit" id="dunit">B/s</span></div>
-                <div class="sub"><span title="Peak rate">P <b id="dpeak">0</b></span><span title="Total downloaded">T <b id="dtot">0 B</b></span><span title="Active downloads">A <b id="dact">0</b></span></div>
+                <div class="sub"><span title="Peak rate">Peak <b id="dpeak">0</b></span><span title="Total downloaded">Total <b id="dtot">0 B</b></span><span title="Active downloads">Active <b id="dact">0</b></span></div>
               </div>
               <div class="chart-metric upload-metric">
-                <div class="lab"><i></i>UPLOAD</div>
+                <div class="lab"><i></i>Upload</div>
                 <div class="big" title="Click to switch units"><span class="num" id="unum">0</span><span class="unit" id="uunit">B/s</span></div>
-                <div class="sub"><span title="Peak rate">P <b id="upeak">0</b></span><span title="Total uploaded">T <b id="utot">0 B</b></span><span title="Active uploads">A <b id="uact">0</b></span></div>
+                <div class="sub"><span title="Peak rate">Peak <b id="upeak">0</b></span><span title="Total uploaded">Total <b id="utot">0 B</b></span><span title="Active uploads">Active <b id="uact">0</b></span></div>
               </div>
             </div>
           </div>
           <canvas id="gnet"></canvas>
         </div>
-        <div class="disk"><span class="muted">STORAGE USED</span><div class="seg-bar"><i id="sfill"></i></div><b id="sdisk-pct">--%</b><span id="stext" class="muted"></span></div>
+        <div class="disk"><span class="muted">Storage</span><div class="seg-bar"><i id="sfill"></i></div><b id="sdisk-pct">--%</b><span id="stext" class="muted"></span></div>
         <div class="disk-activity" title="Disk busy percentage is supported on Windows and Linux; read/write throughput is shown where available.">
-          <span class="muted">DISK ACTIVITY</span>
+          <span class="muted">Disk activity</span>
           <div class="seg-bar"><i id="disk-activity-fill"></i></div>
           <b id="disk-activity-pct">--%</b>
-          <span id="disk-activity-rate" class="muted">READ -- · WRITE --</span>
+          <span id="disk-activity-rate" class="muted">Read — · Write —</span>
         </div>
-        <div class="foot"><span>PING <b id="pingv">-</b></span><span>FPS <b id="fpsv">-</b></span><span>UPTIME <b id="uptv">-</b></span><span>click a speed to switch MB/s / Mbps &middot; measured on the server</span></div>
+        <div class="foot"><span>Ping <b id="pingv">-</b></span><span>FPS <b id="fpsv">-</b></span><span>Uptime <b id="uptv">-</b></span><span>Tap a speed to switch MB/s · Mbps</span></div>
       </div></div></div>
     </section>
 
     <section class="panel" id="p-up">
-      <div class="ph"><span class="pt">UPLOAD</span><span class="pm">drag &amp; drop files or folders anywhere</span><i class="chev"></i></div>
+      <div class="ph"><span class="pt">Upload</span><span class="pm">Drag &amp; drop anywhere</span><i class="chev"></i></div>
       <div class="pb"><div class="pi"><div class="pbody">
         <div class="drop" id="drop">
           <div class="ring" data-i="upload" data-s="26"></div>
-          <div class="dt">DROP FILES OR FOLDERS HERE</div>
-          <div class="muted upload-hint">uploads go into the folder you're viewing</div>
+          <div class="dt">Drop files or folders here</div>
+          <div class="muted upload-hint">Uploads go into the folder you’re viewing</div>
           <div class="drow">
             <button class="btn primary" type="button" data-i="upload">Browse files</button>
             <button class="btn" id="updir" type="button" data-i="folderup">Upload folder</button>
@@ -99,11 +99,19 @@
             <span class="muted">Recommended for large files and reverse proxies</span>
           </label>
         </div>
+        <form id="clone-url-form" class="url-clone">
+          <label for="clone-url">Clone from URL</label>
+          <div class="url-clone-row">
+            <input id="clone-url" type="url" placeholder="https://example.com/file.zip" autocomplete="url" required>
+            <button id="clone-url-submit" class="btn primary" type="submit">Clone into current folder</button>
+          </div>
+          <div class="muted upload-hint">The file will be saved in the folder you’re viewing.</div>
+        </form>
       </div></div></div>
     </section>
 
     <section class="panel" id="p-files">
-      <div class="ph"><span class="pt">FILES</span><button class="btn explorer-toggle" id="explorer-toggle" type="button">Expand</button><span class="pm" id="count"></span><i class="chev"></i></div>
+      <div class="ph"><span class="pt">Files</span><button class="btn explorer-toggle" id="explorer-toggle" type="button">Expand</button><span class="pm" id="count"></span><i class="chev"></i></div>
       <div class="pb"><div class="pi"><div class="pbody">
         <div id="archive-view-bar" class="archive-view-bar hidden">
           <span id="archive-view-label"></span>
@@ -111,7 +119,7 @@
         </div>
         <div class="crumbs" id="crumbs"></div>
         <div class="toolbar">
-          <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="search folder"></div>
+          <div class="search"><span data-i="search" data-s="16"></span><input id="q" placeholder="Search this folder"></div>
           <span class="selection-hint" title="Click a card to open. Ctrl/Cmd-click to select; Shift-click to select a range. On touch devices, use checkmarks to select.">Click to open · Ctrl/Cmd-click to select · Shift-click for a range · tap checkmarks on touch devices</span>
           <select id="sort"><option value="date">Newest</option><option value="name">Name</option><option value="size">Largest</option></select>
           <button class="btn" id="newf" data-i="folderplus">New folder</button>
@@ -132,7 +140,7 @@
   </main>
 </div>
 
-<div id="overlay" class="hidden">DROP TO UPLOAD</div>
+<div id="overlay" class="hidden">Drop to upload</div>
 
 <div id="modal" class="hidden">
   <div class="mbar">
@@ -154,16 +162,16 @@
 
 <div id="dlg" class="hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
   <form>
-    <div class="t" id="dlg-title">NEW FOLDER</div>
+    <div class="t" id="dlg-title">New folder</div>
     <div class="dlg-message hidden" id="dlg-message"></div>
-    <input class="field" id="dname" placeholder="folder name" autocomplete="off">
+    <input class="field" id="dname" placeholder="Folder name" autocomplete="off">
     <div class="row"><button type="button" class="btn" id="dcancel">Cancel</button><button class="btn primary" id="dlg-confirm">Create</button></div>
   </form>
 </div>
 
 <div id="share-dialog" class="hidden">
   <form id="share-form">
-    <div class="t">SHARE FILE</div>
+    <div class="t">Share file</div>
     <div id="share-filename" class="muted"></div>
     <p class="share-note">Anyone with the link can download this file. Each download request uses one count. Leave the use limit empty for a permanent link that stays active until you revoke it.</p>
     <div id="share-list" class="share-list"></div>
@@ -190,6 +198,6 @@
 <input type="file" id="pickdir" webkitdirectory multiple hidden>
 
 <script src="/vendor/highlight.min.js?v=11.12.0-static-1" defer></script>
-<script src="/app.js?v=large-folder-performance-1" defer></script>
+<script src="/app.js?v=glass-1" defer></script>
 </body>
 </html>
