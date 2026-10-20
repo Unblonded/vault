@@ -172,7 +172,8 @@ const BANDS = [ // one colour family per theme: bands only step in brightness, w
   { dh: -10, y: .8, amp: .07, f: .85, ph: 5.2, sp: .45, l: 22 },
 ];
 let px = 0, py = 0;
-function sizeBg() { bg.width = Math.ceil(innerWidth / 2); bg.height = Math.ceil(innerHeight / 2); if (reduceMotion) drawBg(0); }
+let bgDpr = 1;
+function sizeBg() { bgDpr = Math.min(devicePixelRatio || 1, 2); bg.width = Math.ceil(innerWidth * bgDpr); bg.height = Math.ceil(innerHeight * bgDpr); if (reduceMotion) drawBg(0); }
 addEventListener('resize', sizeBg);
 function drawBg(ts) {
   const W = bg.width, H = bg.height, t = ts / 1000 * .16, sat = Math.max(THEMES[themeIdx][2], 6), N = 28;
@@ -190,7 +191,7 @@ function drawBg(ts) {
     bctx.shadowColor = 'rgba(0,0,0,.55)'; bctx.shadowBlur = H * .06; bctx.shadowOffsetY = -H * .015;
     bctx.fillStyle = g; bctx.fill();
     bctx.shadowColor = 'transparent';
-    bctx.strokeStyle = `hsl(${h} ${s}% 82% / .55)`; bctx.lineWidth = 1; bctx.stroke(); // bright fold line along the crest
+    bctx.strokeStyle = `hsl(${h} ${s}% 82% / .55)`; bctx.lineWidth = bgDpr; bctx.stroke(); // bright fold line along the crest
   });
 }
 sizeBg();
@@ -203,7 +204,10 @@ sizeBg();
 // highlight that is screened over the result. Chromium is the only engine that runs SVG filters inside
 // backdrop-filter; everything else keeps the plain CSS blur.
 const GLASS_SEL = 'header,.panel,.login-card,#dlg form,#share-dialog form,.mbar,.chart-hud,.toast,.up';
-const glassOK = !!window.chrome && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
+// Retina Macs push 4x the pixels through these filters every time the backdrop moves, so they get the plain blur
+const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
+document.documentElement.classList.toggle('lite', isMac);
+const glassOK = !!window.chrome && !isMac && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
 function glassMap(W, H, r) {
   const k = .5, w = Math.max(2, Math.ceil(W * k)), h = Math.max(2, Math.ceil(H * k));
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
@@ -281,6 +285,7 @@ if (glassOK) {
 let mraf = 0;
 addEventListener('pointermove', (e) => {
   mouse.x = e.clientX; mouse.y = e.clientY;
+  if (isMac) return;   // the pointer-tracked sheen repaints every pane on each move; skip it where that hurts
   if (!mraf) mraf = requestAnimationFrame(() => { document.body.style.setProperty('--mx', mouse.x + 'px'); document.body.style.setProperty('--my', mouse.y + 'px'); mraf = 0; });
 });
 
@@ -397,13 +402,15 @@ function updateExplorerMode() {
 }
 
 /* ================= main frame loop ================= */
-let appVisible = false, frames = 0, lastFps = performance.now(), lastHueSet = 0, lastBg = 0;
+let appVisible = false, frames = 0, lastFps = performance.now(), lastHueSet = 0, lastHueStr = '', lastBg = 0;
 function loop(ts) {
   requestAnimationFrame(loop);
   frames++; if (ts - lastFps >= 1000) { fps = Math.round(frames * 1000 / (ts - lastFps)); frames = 0; lastFps = ts; }
   const [, th, ts2] = THEMES[themeIdx];
   hue = reduceMotion ? th : hue + (th - hue) * .08; // ease between accents instead of snapping
-  if (ts - lastHueSet > 32) { root.style.setProperty('--hue', hue.toFixed(1)); root.style.setProperty('--sat', ts2 + '%'); lastHueSet = ts; }
+  // only touch :root when the value actually moves: every write restyles the whole page
+  const hs = hue.toFixed(1) + '|' + ts2;
+  if (ts - lastHueSet > 32 && hs !== lastHueStr) { root.style.setProperty('--hue', hue.toFixed(1)); root.style.setProperty('--sat', ts2 + '%'); lastHueSet = ts; lastHueStr = hs; }
   if (!reduceMotion && ts - lastBg > 45) { drawBg(ts); lastBg = ts; }
   if (appVisible) {
     paintNums();
