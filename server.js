@@ -640,7 +640,7 @@ app.get('/s/:token', (req, res) => {
 <meta name="twitter:title" content="${name}">
 <meta name="twitter:description" content="${description}">
 ${socialImage}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg?v=vault" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -648,7 +648,7 @@ ${socialImage}
 <link rel="stylesheet" href="/share.css?v=glass-1">
 </head>
 <body><main>
-<div class="brand"><img src="/favicon.svg" alt="" width="28" height="28"> Vault</div>
+<div class="brand"><img src="/favicon.svg?v=vault" alt="" width="28" height="28"> Vault</div>
 <div class="tag">A file has been shared with you</div>
 <h1>${name}</h1>
 <div class="meta">${escapeHtml(size)} · Download starts only when you choose below.</div>

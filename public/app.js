@@ -150,7 +150,7 @@ async function api(url, opts = {}, prompt = true) {
 }
 
 /* ================= theme / accent ================= */
-const THEMES = [['Blue', 211, 100], ['Indigo', 238, 85], ['Purple', 280, 75], ['Pink', 338, 95], ['Orange', 30, 100], ['Mint', 168, 70], ['Graphite', 220, 8]];
+const THEMES = [['Blue', 214, 85], ['Indigo', 238, 60], ['Purple', 268, 50], ['Rose', 345, 60], ['Amber', 28, 85], ['Teal', 182, 60], ['Graphite', 220, 8]];
 let themeIdx = (+LS.get('vault-theme') || 0) % THEMES.length, hue = THEMES[themeIdx][1];
 $('#themename').textContent = THEMES[themeIdx][0];
 $('#theme').onclick = () => {
@@ -159,46 +159,56 @@ $('#theme').onclick = () => {
   if (reduceMotion) requestAnimationFrame(() => drawBg(0));
 };
 
-/* ================= background: slow drifting light orbs ================= */
-// Drawn at 1/4 resolution and stretched by CSS: gradients upscale smoothly and the glass panels blur it further.
+/* ================= background: flowing colour wallpaper ================= */
+// Glass only reads as glass when there is something vivid behind it to bend, so the backdrop is a stack of
+// broad, slowly flowing colour bands (like the macOS / iOS wallpapers). Each band overlaps the one above it
+// and casts a soft shadow, which gives the lenses crisp, folded edges to refract.
 const bg = $('#bg'), bctx = bg.getContext('2d'), mouse = { x: -999, y: -999 };
-const ORBS = [
-  { dh: 0, r: .62, ph: 0.4, sp: 1.0, a: .55 },
-  { dh: 38, r: .5, ph: 2.1, sp: .8, a: .42 },
-  { dh: -42, r: .55, ph: 4.0, sp: .65, a: .4 },
-  { dh: 70, r: .42, ph: 5.3, sp: .9, a: .26 },
-  { dh: -18, r: .38, ph: 1.2, sp: 1.15, a: .3 },
+const BANDS = [ // one colour family per theme: bands only step in brightness, with a slight hue drift for depth
+  { dh: 10, y: -.1, amp: .06, f: .7, ph: .3, sp: .55, l: 22 },
+  { dh: 5, y: .14, amp: .08, f: .9, ph: 2.0, sp: .7, l: 34 },
+  { dh: 0, y: .36, amp: .09, f: .75, ph: 4.1, sp: .5, l: 48 },
+  { dh: -5, y: .58, amp: .08, f: 1.05, ph: 1.2, sp: .65, l: 36 },
+  { dh: -10, y: .8, amp: .07, f: .85, ph: 5.2, sp: .45, l: 22 },
 ];
 let px = 0, py = 0;
-function sizeBg() { bg.width = Math.ceil(innerWidth / 4); bg.height = Math.ceil(innerHeight / 4); if (reduceMotion) drawBg(0); }
+function sizeBg() { bg.width = Math.ceil(innerWidth / 2); bg.height = Math.ceil(innerHeight / 2); if (reduceMotion) drawBg(0); }
 addEventListener('resize', sizeBg);
 function drawBg(ts) {
-  const W = bg.width, H = bg.height, M = Math.max(W, H), t = ts / 1000 * .045, sat = THEMES[themeIdx][2];
-  if (mouse.x > -999) { px += ((mouse.x / innerWidth - .5) - px) * .02; py += ((mouse.y / innerHeight - .5) - py) * .02; }
-  bctx.globalCompositeOperation = 'source-over'; bctx.fillStyle = '#05060a'; bctx.fillRect(0, 0, W, H);
-  bctx.globalCompositeOperation = 'lighter';
-  ORBS.forEach((o, i) => {
-    const x = W * (.5 + .42 * Math.sin(t * o.sp + o.ph)) + px * W * (.04 + i * .015);
-    const y = H * (.5 + .4 * Math.cos(t * o.sp * 1.3 + o.ph * 1.7)) + py * H * (.04 + i * .015);
-    const R = M * o.r, g = bctx.createRadialGradient(x, y, 0, x, y, R), h = hue + o.dh, s = Math.max(sat * .85, 12);
-    g.addColorStop(0, `hsla(${h},${s}%,56%,${o.a})`); g.addColorStop(.38, `hsla(${h},${s}%,46%,${o.a * .7})`); g.addColorStop(.62, `hsla(${h},${s}%,36%,${o.a * .18})`); g.addColorStop(1, `hsla(${h},${s}%,30%,0)`);
-    bctx.fillStyle = g; bctx.fillRect(0, 0, W, H);
+  const W = bg.width, H = bg.height, t = ts / 1000 * .16, sat = Math.max(THEMES[themeIdx][2], 6), N = 28;
+  if (mouse.x > -999) { px += ((mouse.x / innerWidth - .5) - px) * .03; py += ((mouse.y / innerHeight - .5) - py) * .03; }
+  bctx.shadowColor = 'transparent';
+  bctx.fillStyle = `hsl(${hue} ${sat * .5}% 5%)`; bctx.fillRect(0, 0, W, H);
+  BANDS.forEach((b, i) => {
+    const h = hue + b.dh, s = sat * .9, off = py * H * .03 * (i + 1), sx = px * W * .02 * (i + 1);
+    const edge = (x) => H * (b.y + b.amp * Math.sin((x + sx) / W * Math.PI * 2 * b.f + t * b.sp + b.ph) + .025 * Math.sin((x + sx) / W * 7 + t * b.sp * 1.6 + i)) + off;
+    bctx.beginPath();
+    for (let j = 0; j <= N; j++) { const x = (j / N) * (W + 40) - 20; j ? bctx.lineTo(x, edge(x)) : bctx.moveTo(x, edge(x)); }
+    bctx.lineTo(W + 20, H + 20); bctx.lineTo(-20, H + 20); bctx.closePath();
+    const top = H * (b.y - b.amp), g = bctx.createLinearGradient(0, top, 0, top + H * .42);
+    g.addColorStop(0, `hsl(${h} ${s}% ${b.l + 16}%)`); g.addColorStop(.18, `hsl(${h} ${s}% ${b.l}%)`); g.addColorStop(1, `hsl(${h + 6} ${s}% ${b.l * .35}%)`);
+    bctx.shadowColor = 'rgba(0,0,0,.55)'; bctx.shadowBlur = H * .06; bctx.shadowOffsetY = -H * .015;
+    bctx.fillStyle = g; bctx.fill();
+    bctx.shadowColor = 'transparent';
+    bctx.strokeStyle = `hsl(${h} ${s}% 82% / .55)`; bctx.lineWidth = 1; bctx.stroke(); // bright fold line along the crest
   });
-  bctx.globalCompositeOperation = 'source-over';
 }
 sizeBg();
 
-/* ================= liquid glass refraction ================= */
-// Each pane gets its own SVG lens: a displacement map built for its exact size and corner radius that
-// pulls the backdrop inward along the rim, like light bending through thick glass. Chromium is the only
-// engine that applies SVG filters in backdrop-filter; everything else keeps the plain frosted CSS blur.
-const GLASS_SEL = 'header,.panel,.login-card,#dlg form,#share-dialog form,.mbar,.chart-hud';
+/* ================= liquid glass lenses ================= */
+// Every glass pane gets an SVG lens sized to it: a displacement map from the pane's rounded-rect distance
+// field. Near the rim the surface curves away like the edge of a thick convex slab, so the backdrop there is
+// pulled from further inside and squeezed into the edge. Red, green and blue are displaced by slightly
+// different amounts for a hint of dispersion, and the map's blue channel carries a light-angled bezel
+// highlight that is screened over the result. Chromium is the only engine that runs SVG filters inside
+// backdrop-filter; everything else keeps the plain CSS blur.
+const GLASS_SEL = 'header,.panel,.login-card,#dlg form,#share-dialog form,.mbar,.chart-hud,.toast,.up';
 const glassOK = !!window.chrome && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
 function glassMap(W, H, r) {
   const k = .5, w = Math.max(2, Math.ceil(W * k)), h = Math.max(2, Math.ceil(H * k));
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const cx = cv.getContext('2d'), img = cx.createImageData(w, h), d = img.data;
-  const band = Math.min(34, Math.min(W, H) / 2.2);
+  const band = Math.min(44, Math.min(W, H) / 2.4), hb = Math.min(16, band * .55), lx = -.5, ly = -.866;
   r = Math.min(r, W / 2, H / 2);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const px = (x + .5) / k - W / 2, py = (y + .5) / k - H / 2;
@@ -207,9 +217,12 @@ function glassMap(W, H, r) {
     if (qx > 0 && qy > 0) { const l = Math.hypot(qx, qy) || 1; nx = qx / l; ny = qy / l; dist = r - l; }
     else if (qx > qy) { nx = 1; ny = 0; dist = r - qx; }
     else { nx = 0; ny = 1; dist = r - qy; }
-    const t = dist < band ? 1 - Math.max(dist, 0) / band : 0, m = t * t * (3 - 2 * t);
+    nx *= Math.sign(px) || 1; ny *= Math.sign(py) || 1;
+    const s = Math.max(dist, 0), t = s < band ? 1 - s / band : 0, m = t * t;       // convex rim: steepest at the very edge
+    const e = s < hb ? (1 - s / hb) ** 2 : 0, dot = nx * lx + ny * ly;          // bezel catches light top-left, bounces bottom-right
+    const spec = Math.min(.75, e * (.16 + .7 * (dot > 0 ? dot : -dot * .7) ** 1.4));
     const i = (y * w + x) * 4;
-    d[i] = 128 - Math.sign(px) * nx * m * 127; d[i + 1] = 128 - Math.sign(py) * ny * m * 127; d[i + 2] = 128; d[i + 3] = 255;
+    d[i] = 128 - nx * m * 127; d[i + 1] = 128 - ny * m * 127; d[i + 2] = spec * 255; d[i + 3] = 255;
   }
   cx.putImageData(img, 0, 0);
   return cv.toDataURL();
@@ -218,18 +231,24 @@ if (glassOK) {
   const NS = 'http://www.w3.org/2000/svg', defs = document.createElementNS(NS, 'svg');
   defs.setAttribute('aria-hidden', 'true'); defs.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
   document.body.prepend(defs);
+  const CH = ['1 0 0 0 0 0 0 0 0 0 0 0 0 0 0', '0 0 0 0 0 0 1 0 0 0 0 0 0 0 0', '0 0 0 0 0 0 0 0 0 0 0 0 1 0 0'];
   const lenses = new Map(); let lensN = 0;
   const lens = (el) => {
     let L = lenses.get(el);
     if (!L) {
       const id = 'lg' + lensN++, f = document.createElementNS(NS, 'filter');
       f.id = id; f.setAttribute('color-interpolation-filters', 'sRGB');
+      f.setAttribute('x', '0'); f.setAttribute('y', '0'); f.setAttribute('width', '100%'); f.setAttribute('height', '100%');
       f.innerHTML = '<feImage result="map" preserveAspectRatio="none" x="0" y="0"/>' +
-        '<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G"/>';
+        CH.map((m, c) => `<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G" result="d${c}"/>` +
+          `<feColorMatrix in="d${c}" values="${m} 0 0 0 1 0" result="c${c}"/>`).join('') +
+        '<feBlend in="c0" in2="c1" mode="screen" result="rg"/><feBlend in="rg" in2="c2" mode="screen" result="rgb"/>' +
+        '<feColorMatrix in="map" values="0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 1" result="spec"/>' +
+        '<feBlend in="spec" in2="rgb" mode="screen"/>';
       defs.append(f);
-      L = { id, img: f.firstChild, disp: f.lastChild, w: 0, h: 0, timer: 0 };
+      L = { id, img: f.firstChild, disps: [...f.querySelectorAll('feDisplacementMap')], w: 0, h: 0, timer: 0 };
       lenses.set(el, L);
-      el.style.backdropFilter = `blur(14px) url(#${id}) saturate(190%) brightness(1.06)`;
+      el.style.backdropFilter = `blur(var(--gb,6px)) url(#${id}) saturate(var(--gs,160%)) brightness(var(--gl,1.04))`;
     }
     return L;
   };
@@ -237,10 +256,10 @@ if (glassOK) {
     for (const { target: el } of entries) {
       const W = el.offsetWidth, H = el.offsetHeight;
       if (!W || !H) continue;
-      const L = lens(el);
+      const L = lens(el), S = Math.min(96, Math.min(W, H) * .6);
       // stretch the old map right away so a resizing pane never shows an unmapped strip, then rebuild it once the size settles
       L.img.setAttribute('width', W); L.img.setAttribute('height', H);
-      L.disp.setAttribute('scale', Math.min(70, Math.min(W, H) * .5));
+      L.disps.forEach((dm, c) => dm.setAttribute('scale', (S * (1 + c * .07)).toFixed(1)));
       if (Math.abs(W - L.w) < 2 && Math.abs(H - L.h) < 2) continue;
       clearTimeout(L.timer);
       L.timer = setTimeout(() => {
@@ -250,7 +269,14 @@ if (glassOK) {
       }, L.w ? 160 : 0);
     }
   });
-  document.querySelectorAll(GLASS_SEL).forEach((el) => { lens(el); ro.observe(el); });
+  const attach = (el) => { if (!lenses.has(el)) { lens(el); ro.observe(el); } };
+  document.querySelectorAll(GLASS_SEL).forEach(attach);
+  // toasts and upload cards come and go, so lens them as they appear
+  const detach = (el) => { const L = lenses.get(el); if (L) { clearTimeout(L.timer); ro.unobserve(el); defs.querySelector('#' + L.id)?.remove(); lenses.delete(el); } };
+  new MutationObserver((muts) => muts.forEach((m) => {
+    m.addedNodes.forEach((n) => n.nodeType === 1 && n.matches(GLASS_SEL) && attach(n));
+    m.removedNodes.forEach((n) => n.nodeType === 1 && detach(n));
+  })).observe(document.body, { childList: true, subtree: true });
 }
 let mraf = 0;
 addEventListener('pointermove', (e) => {
@@ -378,7 +404,7 @@ function loop(ts) {
   const [, th, ts2] = THEMES[themeIdx];
   hue = reduceMotion ? th : hue + (th - hue) * .08; // ease between accents instead of snapping
   if (ts - lastHueSet > 32) { root.style.setProperty('--hue', hue.toFixed(1)); root.style.setProperty('--sat', ts2 + '%'); lastHueSet = ts; }
-  if (!reduceMotion && ts - lastBg > 32) { drawBg(ts); lastBg = ts; }
+  if (!reduceMotion && ts - lastBg > 45) { drawBg(ts); lastBg = ts; }
   if (appVisible) {
     paintNums();
     if (!$('#p-net').classList.contains('col')) drawNetworkGraph(ts);
